@@ -133,6 +133,8 @@ class ExaNewsSource:
                 if raw.get("publishedDate"):
                     try:
                         pub_date = pd.Timestamp(raw["publishedDate"])
+                        if getattr(pub_date, 'tzinfo', None) is not None:
+                            pub_date = pub_date.tz_localize(None)
                     except (ValueError, TypeError):
                         pass
 

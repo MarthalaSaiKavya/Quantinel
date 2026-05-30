@@ -195,7 +195,10 @@ class NewsFeed:
         cutoff = self.as_of - pd.Timedelta(days=lookback_days)
         groups: dict[str, list[float]] = {}
         for a in self.articles:
-            if a.published_date >= cutoff:
+            pub = a.published_date
+            if getattr(pub, 'tzinfo', None) is not None:
+                pub = pub.tz_localize(None)
+            if pub >= cutoff:
                 groups.setdefault(a.ticker, []).append(a.sentiment_score)
         return {t: sum(s) / len(s) for t, s in groups.items() if s}
 
