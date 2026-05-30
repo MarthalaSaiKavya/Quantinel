@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from .contracts import DataSource, Executor, Forecast, Forecaster, Optimizer, RiskEstimator
+from contracts import DataSource, Executor, Forecast, Forecaster, Optimizer, RiskEstimator
 
 
 @dataclass

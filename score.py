@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .contracts import Scorecard
+from contracts import Scorecard
 
 PERIODS_PER_YEAR = 52   # weekly rebalances
 

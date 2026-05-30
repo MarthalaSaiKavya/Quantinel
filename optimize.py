@@ -15,7 +15,7 @@ import itertools
 
 import numpy as np
 
-from .contracts import Forecast, RiskModel, TargetPortfolio
+from contracts import Forecast, RiskModel, TargetPortfolio
 
 
 class MeanVarianceOptimizer:

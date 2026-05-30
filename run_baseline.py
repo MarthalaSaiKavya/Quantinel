@@ -9,13 +9,13 @@ Nothing else moves.
 
 Run:  python run_baseline.py
 """
-from quant_pipeline.backtest import Backtest
-from quant_pipeline.data import MockDataSource
-from quant_pipeline.execute import PaperExecutor
-from quant_pipeline.forecast import MomentumForecaster
-from quant_pipeline.optimize import MeanVarianceOptimizer
-from quant_pipeline.risk import SampleCovRisk
-from quant_pipeline.score import BacktestScorer
+from backtest import Backtest
+from data import MockDataSource
+from execute import PaperExecutor
+from forecast import MomentumForecaster
+from optimize import MeanVarianceOptimizer
+from risk import SampleCovRisk
+from score import BacktestScorer
 
 
 def main():

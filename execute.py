@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .contracts import ExecutionResult, Fill, MarketData, TargetPortfolio
+from contracts import ExecutionResult, Fill, MarketData, TargetPortfolio
 
 
 class PaperExecutor:

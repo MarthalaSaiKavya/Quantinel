@@ -52,7 +52,7 @@ Because the contracts are fixed, B and C can build against the baseline data whi
 ## Run it
 
 ```bash
-python -m quant_pipeline.run_baseline
+python run_baseline.py
 ```
 
 Prints a scorecard for the no-quantum baseline (Sharpe, return, directional accuracy, IC, and the edge over a 50/50 buy-and-hold).
