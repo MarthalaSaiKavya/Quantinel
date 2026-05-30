@@ -12,7 +12,7 @@ Run:  python run_baseline.py
 from backtest import Backtest
 from data import MockDataSource
 from execute import PaperExecutor
-from forecast import MomentumForecaster
+from forecast import ChronosForecaster
 from optimize import MeanVarianceOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer
@@ -21,7 +21,7 @@ from score import BacktestScorer
 def main():
     bt = Backtest(
         source=MockDataSource(),              # Layer 1 · Data
-        forecaster=MomentumForecaster(),      # Layer 2 · Forecast   <-- swap QuantumForecaster() here
+        forecaster=ChronosForecaster(),      # Layer 2 · Forecast   <-- swap QuantumForecaster() here
         risk=SampleCovRisk(),                 # Layer 3 · Risk
         optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size <-- swap QaoaOptimizer() here
         executor=PaperExecutor(),             # Layer 5 · Execute

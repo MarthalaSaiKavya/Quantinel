@@ -4,6 +4,11 @@ LAYER 2 · FORECAST   (owner: GT (10780))
 BASELINE (no ML, no quantum): MomentumForecaster.
 QUANTUM SWAP: QuantumForecaster (QSVM / VQC) — same interface, you fill the body.
 You could also drop in a Chronos or LSTM forecaster here; the contract is identical.
+
+QuantumForecaster is designed to run on IBM Quantum hardware via Qiskit Runtime, but it can also run locally on a simulator if no credentials are provided.  See the docstring for details and usage instructions.
+VCQ has been chosen as the quantum model for this challenge because it is relatively lightweight to train and infer, and it has a nice probabilistic output that maps well to the Forecast contract.  However, feel free to experiment with other quantum algorithms or models if you prefer.
+Chronos forecasting is also added as a third option.  It uses Amazon's pretrained Chronos-T5 transformer, which is a zero-shot probabilistic time-series model — no training loop required.  The model is downloaded from HuggingFace on first use and cached locally.
+
 """
 from __future__ import annotations
 
@@ -226,108 +231,55 @@ class QuantumForecaster:
         )
 
 
-class LSTMForecaster:
+class ChronosForecaster:
     """
-    LSTM regression forecaster — SAME interface as MomentumForecaster.
+    Chronos pretrained transformer — SAME interface as MomentumForecaster.
 
-    For each ticker a sliding-window dataset is built from historical daily
-    returns.  A small two-layer LSTM is trained (via PyTorch) to predict the
-    next ``horizon_days`` cumulative return from a sequence of ``seq_len``
-    past returns.  The raw regression output maps directly to the contract:
-        expected_returns[t] = predicted cumulative return  (signed)
-        direction[t]        = sign of the prediction  (+1 / -1)
-        confidence[t]       = min(1, |pred| / train_std)   (0..1)
+    Zero-shot: no training loop.  The pretrained Chronos-T5 model (downloaded
+    from HuggingFace on first use and cached locally) receives the raw return
+    series as context and returns a predictive distribution over the next
+    ``horizon_days`` steps.  The median of that distribution becomes
+    ``expected_returns``; the inter-sample spread drives ``confidence``.
+
+        expected_returns[t] = median predicted cumulative return  (signed)
+        direction[t]        = sign of the median  (+1 / -1)
+        confidence[t]       = min(1, |median| / std_of_samples)  (0..1)
 
     Usage::
 
-        forecaster = LSTMForecaster()
-        # or in run_baseline.py:
-        forecaster = LSTMForecaster(seq_len=20, epochs=100)
+        forecaster = ChronosForecaster()                            # tiny, CPU-friendly
+        forecaster = ChronosForecaster(model_name="amazon/chronos-t5-small")  # more accurate
     """
 
     def __init__(
         self,
-        lookback: int = 120,
-        seq_len: int = 20,
-        hidden_size: int = 32,
-        num_layers: int = 2,
-        epochs: int = 50,
-        lr: float = 1e-3,
+        model_name: str = "amazon/chronos-t5-tiny",
+        context_len: int = 60,
+        num_samples: int = 20,
+        device: str = "cpu",
     ) -> None:
-        self.lookback = lookback
-        self.seq_len = seq_len
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.epochs = epochs
-        self.lr = lr
+        self.model_name = model_name
+        self.context_len = context_len
+        self.num_samples = num_samples
+        self.device = device
+        self._pipeline = None   # lazy-loaded on first predict()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _make_dataset(
-        self, col: pd.Series, horizon_days: int
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Sliding-window supervised dataset for one ticker.
+    def _get_pipeline(self):
+        """Lazy-load the ChronosPipeline (downloads weights on first call)."""
+        if self._pipeline is None:
+            import torch
+            from chronos import ChronosPipeline
 
-        Returns X of shape (n_samples, seq_len) and y of shape (n_samples,)
-        where y is the realized cumulative return over the next horizon_days.
-        """
-        window_needed = self.lookback + self.seq_len + horizon_days
-        col = col.tail(window_needed)
-        vals = col.to_numpy(dtype=float)
-        n = len(vals)
-
-        X, y = [], []
-        for i in range(self.seq_len, n - horizon_days):
-            X.append(vals[i - self.seq_len : i])
-            future_ret = float(np.prod(1.0 + vals[i : i + horizon_days]) - 1.0)
-            y.append(future_ret)
-
-        return np.array(X, dtype=float), np.array(y, dtype=float)
-
-    def _train(self, X: np.ndarray, y: np.ndarray):
-        """
-        Scale features and target, build and train the LSTM, return
-        (model, x_scaler, y_scaler) ready for inference.
-        """
-        import torch
-        import torch.nn as nn
-        from sklearn.preprocessing import StandardScaler
-
-        x_scaler = StandardScaler()
-        y_scaler = StandardScaler()
-
-        X_scaled = x_scaler.fit_transform(X)                          # (n, seq_len)
-        y_scaled = y_scaler.fit_transform(y.reshape(-1, 1)).ravel()   # (n,)
-
-        X_t = torch.tensor(X_scaled, dtype=torch.float32).unsqueeze(-1)  # (n, seq_len, 1)
-        y_t = torch.tensor(y_scaled, dtype=torch.float32)
-
-        class _LSTMNet(nn.Module):
-            def __init__(self, hidden_size: int, num_layers: int) -> None:
-                super().__init__()
-                self.lstm = nn.LSTM(1, hidden_size, num_layers, batch_first=True)
-                self.head = nn.Linear(hidden_size, 1)
-
-            def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-                out, _ = self.lstm(x)
-                return self.head(out[:, -1, :]).squeeze(-1)
-
-        model = _LSTMNet(self.hidden_size, self.num_layers)
-        optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
-        loss_fn = nn.MSELoss()
-
-        model.train()
-        for _ in range(self.epochs):
-            optimizer.zero_grad()
-            loss = loss_fn(model(X_t), y_t)
-            loss.backward()
-            optimizer.step()
-
-        model.eval()
-        return model, x_scaler, y_scaler
+            self._pipeline = ChronosPipeline.from_pretrained(
+                self.model_name,
+                device_map=self.device,
+                torch_dtype=torch.float32,
+            )
+        return self._pipeline
 
     # ------------------------------------------------------------------
     # Public interface (same signature as MomentumForecaster)
@@ -336,41 +288,42 @@ class LSTMForecaster:
     def predict(self, data: MarketData, as_of, horizon_days: int) -> Forecast:
         import torch
 
+        pipeline = self._get_pipeline()
         returns = data.returns()
+
         expected_returns: dict[str, float] = {}
         direction: dict[str, int] = {}
         confidence: dict[str, float] = {}
 
         for ticker in data.tickers:
-            col = returns[ticker].dropna().loc[:as_of]
-            X, y = self._make_dataset(col, horizon_days)
+            col = returns[ticker].dropna().loc[:as_of].tail(self.context_len)
 
-            if len(X) < 10:
+            if len(col) < 10:
                 direction[ticker] = 1
                 confidence[ticker] = 0.0
                 expected_returns[ticker] = 0.0
                 continue
 
-            model, x_scaler, y_scaler = self._train(X, y)
+            context = torch.tensor(col.to_numpy(dtype=float), dtype=torch.float32)
 
-            recent = col.tail(self.seq_len).to_numpy(dtype=float)
-            if len(recent) < self.seq_len:
-                direction[ticker] = 1
-                confidence[ticker] = 0.0
-                expected_returns[ticker] = 0.0
-                continue
+            # forecast() returns (samples, quantiles) tensors;
+            # samples shape: (num_samples, horizon_days)
+            forecast_samples, _ = pipeline.predict(
+                context.unsqueeze(0),
+                prediction_length=horizon_days,
+                num_samples=self.num_samples,
+            )
 
-            recent_scaled = x_scaler.transform(recent.reshape(1, -1))
-            X_pred = torch.tensor(recent_scaled, dtype=torch.float32).unsqueeze(-1)
+            # Compound each sample's per-step returns into a single horizon return.
+            sample_returns = (
+                (1.0 + forecast_samples[0]).prod(dim=-1) - 1.0
+            ).numpy()
 
-            with torch.no_grad():
-                pred_scaled = model(X_pred).item()
-
-            pred = float(y_scaler.inverse_transform([[pred_scaled]])[0, 0])
-            train_std = float(np.std(y)) if len(y) > 1 else 1e-6
+            pred = float(np.median(sample_returns))
+            spread = float(np.std(sample_returns))
 
             dir_val: int = 1 if pred >= 0.0 else -1
-            conf: float = float(min(1.0, abs(pred) / (train_std + 1e-9)))
+            conf: float = float(min(1.0, abs(pred) / (spread + 1e-9)))
 
             direction[ticker] = dir_val
             confidence[ticker] = conf
