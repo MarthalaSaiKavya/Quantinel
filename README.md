@@ -24,7 +24,7 @@ MarketData     Forecast        RiskModel     TargetPortfolio  ExecutionResult Sc
 
 | Layer | Owner | Consumes | Produces | Interface (in `contracts.py`) |
 |-------|-------|----------|----------|-------------------------------|
-| 1 · Data | A | — | `MarketData` | `DataSource.load()` |
+| 1 · Data | Rahul | — | `MarketData` | `DataSource.load()` |
 | 2 · Forecast | B | `MarketData` | `Forecast` | `Forecaster.predict()` |
 | 3 · Risk | C | `MarketData` | `RiskModel` | `RiskEstimator.estimate()` |
 | 4 · Pick & size | C | `Forecast`, `RiskModel` | `TargetPortfolio` | `Optimizer.solve()` |
