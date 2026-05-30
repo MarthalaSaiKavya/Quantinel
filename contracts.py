@@ -106,6 +106,30 @@ class Scorecard:
 # LAYER INTERFACES  (each teammate owns exactly one of these)
 # ============================================================================
 
+@dataclass
+class NewsItem:
+    """A single piece of world-news used by ChaosEngine."""
+    timestamp: pd.Timestamp
+    headline: str
+    sentiment_score: float   # -1.0 (very negative) .. +1.0 (very positive)
+    source: str = ""
+
+
+@dataclass(frozen=True)
+class ChaosSignal:
+    """OUTPUT of ChaosEngine.evaluate().  Can be used to override Forecast or TargetPortfolio."""
+    as_of: pd.Timestamp
+    crash_probability: float             # 0..1 estimated probability of an adverse wildcard event
+    event_label: str                     # human-readable type e.g. "market_crash", "liquidity_crisis"
+    confidence: float                    # 0..1 model confidence in the signal
+    ticker_adjustments: dict[str, float] # ticker -> weight multiplier applied by adjust_portfolio()
+    reasoning: str = ""                  # plain-English recommendation surfaced to the user
+
+
+# ============================================================================
+# LAYER INTERFACES  (each teammate owns exactly one of these)
+# ============================================================================
+
 @runtime_checkable
 class DataSource(Protocol):
     def load(self) -> MarketData: ...
