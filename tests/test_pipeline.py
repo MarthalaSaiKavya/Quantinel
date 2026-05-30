@@ -4,16 +4,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quant_pipeline.contracts import (
+from contracts import (
     Forecast,
     MarketData,
     NewsArticle,
     NewsFeed,
+    PerSubAgentRisk,
     RiskModel,
+    RiskReport,
+    SubAgentReport,
 )
-from quant_pipeline.data import MockDataSource
-from quant_pipeline.forecast import MomentumForecaster
-from quant_pipeline.risk import SampleCovRisk
+from data import MockDataSource
+from forecast import MomentumForecaster
+from risk import SampleCovRisk
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -230,7 +233,7 @@ def test_disagreement_shrinks_mean_variance_positions():
         disagreement=0.9,
     )
 
-    from quant_pipeline.optimize import MeanVarianceOptimizer
+    from optimize import MeanVarianceOptimizer
 
     opt = MeanVarianceOptimizer()
 
@@ -270,7 +273,7 @@ def test_disagreement_shrinks_discrete_qubo_positions():
         disagreement=0.9,
     )
 
-    from quant_pipeline.optimize import DiscreteQuboOptimizer
+    from optimize import DiscreteQuboOptimizer
 
     opt = DiscreteQuboOptimizer()
 
@@ -290,13 +293,13 @@ def test_disagreement_shrinks_discrete_qubo_positions():
 
 def test_backtest_stores_risk_model_on_steps():
     """StepRecord carries RiskModel after backtest run with news source."""
-    from quant_pipeline.backtest import Backtest
-    from quant_pipeline.data import MockDataSource
-    from quant_pipeline.execute import PaperExecutor
-    from quant_pipeline.forecast import MomentumForecaster
-    from quant_pipeline.news import MockNewsSource
-    from quant_pipeline.optimize import MeanVarianceOptimizer
-    from quant_pipeline.risk import SampleCovRisk
+    from backtest import Backtest
+    from data import MockDataSource
+    from execute import PaperExecutor
+    from forecast import MomentumForecaster
+    from news import MockNewsSource
+    from optimize import MeanVarianceOptimizer
+    from risk import SampleCovRisk
 
     bt = Backtest(
         source=MockDataSource(seed=99),
@@ -325,15 +328,15 @@ def test_backtest_stores_risk_model_on_steps():
 
 def test_risk_report_computes_var_breaches():
     """RiskScorer counts periods where actual return exceeded VaR."""
-    from quant_pipeline.backtest import StepRecord
-    from quant_pipeline.contracts import (
+    from backtest import StepRecord
+    from contracts import (
         Forecast,
         PerSubAgentRisk,
         RiskModel,
         RiskReport,
         SubAgentReport,
     )
-    from quant_pipeline.score import RiskScorer
+    from score import RiskScorer
 
     tickers = ["NVDA", "GOOG"]
     as_of = pd.Timestamp("2024-01-05")
@@ -410,16 +413,17 @@ def test_risk_report_computes_var_breaches():
 # SLICE 7: End-to-end baseline runs and prints both reports
 # ============================================================================
 
+
 def test_baseline_runs_with_news_and_risk_report(capsys):
     """Baseline pipeline runs without error, prints Scorecard and RiskReport."""
-    from quant_pipeline.backtest import Backtest
-    from quant_pipeline.data import MockDataSource
-    from quant_pipeline.execute import PaperExecutor
-    from quant_pipeline.forecast import MomentumForecaster
-    from quant_pipeline.news import MockNewsSource
-    from quant_pipeline.optimize import MeanVarianceOptimizer
-    from quant_pipeline.risk import SampleCovRisk
-    from quant_pipeline.score import BacktestScorer, RiskScorer
+    from backtest import Backtest
+    from data import MockDataSource
+    from execute import PaperExecutor
+    from forecast import MomentumForecaster
+    from news import MockNewsSource
+    from optimize import MeanVarianceOptimizer
+    from risk import SampleCovRisk
+    from score import BacktestScorer, RiskScorer
 
     bt = Backtest(
         source=MockDataSource(seed=42, n_days=252),
