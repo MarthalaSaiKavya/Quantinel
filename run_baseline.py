@@ -1,0 +1,52 @@
+"""
+run_baseline.py  —  the no-quantum end-to-end run.
+
+This is the integration test for the whole team: if everyone's layer honors its
+contract, this prints a scorecard. To go quantum, change ONE line each:
+    forecaster = QuantumForecaster()    # instead of MomentumForecaster()
+    optimizer  = QaoaOptimizer()        # instead of MeanVarianceOptimizer()
+Nothing else moves.
+
+Run:  python run_baseline.py
+"""
+from quant_pipeline.backtest import Backtest
+from quant_pipeline.data import MockDataSource
+from quant_pipeline.execute import PaperExecutor
+from quant_pipeline.forecast import MomentumForecaster
+from quant_pipeline.optimize import MeanVarianceOptimizer
+from quant_pipeline.risk import SampleCovRisk
+from quant_pipeline.score import BacktestScorer
+
+
+def main():
+    bt = Backtest(
+        source=MockDataSource(),              # Layer 1 · Data
+        forecaster=MomentumForecaster(),      # Layer 2 · Forecast   <-- swap QuantumForecaster() here
+        risk=SampleCovRisk(),                 # Layer 3 · Risk
+        optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size <-- swap QaoaOptimizer() here
+        executor=PaperExecutor(),             # Layer 5 · Execute
+    )
+    data, records, baseline = bt.run()
+    card = BacktestScorer().score(records, baseline)   # Layer 6 · Score
+
+    print("=" * 52)
+    print("  NVDA & GOOG pair  —  BASELINE (no quantum)")
+    print("=" * 52)
+    print(f"  rebalances             : {len(records)}")
+    print(f"  Sharpe                 : {card.sharpe:6.2f}")
+    print(f"  total return           : {card.total_return * 100:6.2f}%")
+    print(f"  directional accuracy   : {card.directional_accuracy * 100:6.1f}%")
+    print(f"  information coeff (IC) : {card.information_coefficient:6.2f}")
+    print(f"  Sharpe vs 50/50 hold   : {card.vs_baseline_sharpe:+6.2f}")
+    print(f"  final equity (1.0=flat): {card.equity_curve.iloc[-1]:6.3f}")
+    print("=" * 52)
+
+    last = records[-1]
+    print("  last position (realized weights):")
+    for t, w in last.weights.items():
+        print(f"    {t:5s} {w:+.3f}")
+    print("=" * 52)
+
+
+if __name__ == "__main__":
+    main()
