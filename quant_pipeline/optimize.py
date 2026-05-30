@@ -9,6 +9,7 @@ Three optimizers, all behind the SAME Optimizer interface:
 
 This is the layer where "quantum" actually earns its place at the hackathon.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -24,7 +25,12 @@ class MeanVarianceOptimizer:
     scale to a target gross exposure. Output = continuous signed weights.
     """
 
-    def __init__(self, risk_aversion: float = 8.0, gross: float = 1.0, dollar_neutral: bool = True):
+    def __init__(
+        self,
+        risk_aversion: float = 8.0,
+        gross: float = 1.0,
+        dollar_neutral: bool = True,
+    ):
         self.risk_aversion = risk_aversion
         self.gross = gross
         self.dollar_neutral = dollar_neutral
@@ -34,14 +40,15 @@ class MeanVarianceOptimizer:
         mu = np.array([forecast.expected_returns[t] for t in tickers])
         Sigma = risk.cov.values
 
-        w = np.linalg.solve(self.risk_aversion * Sigma, mu)   # w ∝ Σ^-1 μ
+        w = np.linalg.solve(self.risk_aversion * Sigma, mu)  # w ∝ Σ^-1 μ
         if self.dollar_neutral:
-            w = w - w.mean()                                  # sum(weights) -> ~0
+            w = w - w.mean()  # sum(weights) -> ~0
         gross = np.abs(w).sum()
         if gross > 0:
-            w = w / gross * self.gross                        # scale to target gross
+            w = w / gross * self.gross  # scale to target gross
 
-        weights = {t: float(w[i]) for i, t in enumerate(tickers)}
+        shrink = 1.0 / (1.0 + risk.disagreement)
+        weights = {t: float(w[i]) * shrink for i, t in enumerate(tickers)}
         return TargetPortfolio(as_of=forecast.as_of, weights=weights)
 
 
@@ -55,7 +62,9 @@ class DiscreteQuboOptimizer:
     the classical solution against the quantum one for the Quantum Advantage Award.
     """
 
-    def __init__(self, risk_aversion: float = 8.0, levels: tuple[int, ...] = (-1, 0, 1)):
+    def __init__(
+        self, risk_aversion: float = 8.0, levels: tuple[int, ...] = (-1, 0, 1)
+    ):
         self.risk_aversion = risk_aversion
         self.levels = levels
 
@@ -75,6 +84,8 @@ class DiscreteQuboOptimizer:
                 best_val, best = val, w
 
         weights = {t: float(best[i]) for i, t in enumerate(tickers)}
+        shrink = 1.0 / (1.0 + risk.disagreement)
+        weights = {t: v * shrink for t, v in weights.items()}
         return TargetPortfolio(as_of=forecast.as_of, weights=weights)
 
 

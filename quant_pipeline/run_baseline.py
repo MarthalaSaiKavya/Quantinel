@@ -2,32 +2,35 @@
 run_baseline.py  —  the no-quantum end-to-end run.
 
 This is the integration test for the whole team: if everyone's layer honors its
-contract, this prints a scorecard. To go quantum, change ONE line each:
+contract, this prints a scorecard and risk report. To go quantum, change ONE line each:
     forecaster = QuantumForecaster()    # instead of MomentumForecaster()
     optimizer  = QaoaOptimizer()        # instead of MeanVarianceOptimizer()
 Nothing else moves.
 
-Run:  python run_baseline.py
+Run:  python -m quant_pipeline.run_baseline
 """
 from quant_pipeline.backtest import Backtest
 from quant_pipeline.data import MockDataSource
 from quant_pipeline.execute import PaperExecutor
 from quant_pipeline.forecast import MomentumForecaster
+from quant_pipeline.news import MockNewsSource
 from quant_pipeline.optimize import MeanVarianceOptimizer
 from quant_pipeline.risk import SampleCovRisk
-from quant_pipeline.score import BacktestScorer
+from quant_pipeline.score import BacktestScorer, RiskScorer
 
 
 def main():
     bt = Backtest(
         source=MockDataSource(),              # Layer 1 · Data
-        forecaster=MomentumForecaster(),      # Layer 2 · Forecast   <-- swap QuantumForecaster() here
+        news_source=MockNewsSource(),         # Layer 1 · News
+        forecaster=MomentumForecaster(),      # Layer 2 · Forecast
         risk=SampleCovRisk(),                 # Layer 3 · Risk
-        optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size <-- swap QaoaOptimizer() here
+        optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size
         executor=PaperExecutor(),             # Layer 5 · Execute
     )
     data, records, baseline = bt.run()
     card = BacktestScorer().score(records, baseline)   # Layer 6 · Score
+    report = RiskScorer().score(records)               # Layer 6 · Risk Report
 
     print("=" * 52)
     print("  NVDA & GOOG pair  —  BASELINE (no quantum)")
@@ -45,6 +48,17 @@ def main():
     print("  last position (realized weights):")
     for t, w in last.weights.items():
         print(f"    {t:5s} {w:+.3f}")
+    print("=" * 52)
+
+    print()
+    print("=" * 52)
+    print("  RISK REPORT")
+    print("=" * 52)
+    print(f"  VaR breaches (agg)     : {report.var_breaches}")
+    print(f"  avg disagreement       : {report.avg_disagreement:.3f}")
+    print(f"  max disagreement       : {report.max_disagreement:.3f}")
+    for sa in report.sub_agent_reports:
+        print(f"  {sa.agent_label:12s} breach rate: {sa.var_breach_rate:.3f}")
     print("=" * 52)
 
 
