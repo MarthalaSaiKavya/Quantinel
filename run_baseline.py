@@ -21,13 +21,29 @@ from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
 
 
+def _load_dotenv():
+    """Load .env file into os.environ (no extra dependencies)."""
+    env_path = os.path.join(os.path.dirname(__file__) or ".", ".env")
+    if not os.path.exists(env_path):
+        return
+    for line in open(env_path):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
 def _get_news_source():
     """Use Exa if API key is available, otherwise fall back to mock."""
+    _load_dotenv()
     key = os.environ.get("EXA_API_KEY", "")
     if key:
         print(f"  News source: Exa (live)  —  key {key[:6]}...\n")
         return ExaNewsSource(api_key=key)
-    print("  News source: Mock (offline)  —  set EXA_API_KEY for real news\n")
+    print("  News source: Mock (offline)  —  set EXA_API_KEY in .env for real news\n")
     return MockNewsSource()
 
 
