@@ -45,7 +45,7 @@ Each contract is a frozen dataclass. The important fields:
 - **Person A — Data** (`data.py`): owns `MockDataSource` now; writes a real `AlpacaDataSource` later. Just return a `MarketData`.
 - **Person B — Forecast** (`forecast.py`): owns `MomentumForecaster` (baseline) and the `QuantumForecaster` (QSVM/VQC) swap. Also where a Chronos/LSTM forecaster would go.
 - **Person C — Risk + Optimize** (`risk.py`, `optimize.py`): owns `SampleCovRisk`, `MeanVarianceOptimizer` (Markowitz baseline), `DiscreteQuboOptimizer`, and the `QaoaOptimizer` swap.
-- **Person D — Execute + Score + wiring** (`execute.py`, `score.py`, `backtest.py`, `run_baseline.py`): owns the paper executor, the scorer, and the orchestrator that calls everyone.
+- **Adithya kalidindi — Execute + Score + wiring** (`execute.py`, `score.py`, `backtest.py`, `run_baseline.py`): owns the paper executor, the scorer, and the orchestrator that calls everyone.
 
 Because the contracts are fixed, B and C can build against the baseline data while A is still wiring the real API, and D can score against a dummy forecaster while B trains models.
 
