@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .contracts import Forecast, MarketData, NewsFeed, PerSubAgentRisk, RiskModel
+from contracts import Forecast, MarketData, NewsFeed, PerSubAgentRisk, RiskModel
 
 
 class SampleCovRisk:

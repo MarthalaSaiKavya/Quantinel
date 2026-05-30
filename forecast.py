@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .contracts import Forecast, MarketData
+from contracts import Forecast, MarketData
 
 
 class MomentumForecaster:

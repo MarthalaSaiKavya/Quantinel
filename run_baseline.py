@@ -7,30 +7,31 @@ contract, this prints a scorecard and risk report. To go quantum, change ONE lin
     optimizer  = QaoaOptimizer()        # instead of MeanVarianceOptimizer()
 Nothing else moves.
 
-Run:  python -m quant_pipeline.run_baseline
+Run:  python run_baseline.py
 """
-from quant_pipeline.backtest import Backtest
-from quant_pipeline.data import MockDataSource
-from quant_pipeline.execute import PaperExecutor
-from quant_pipeline.forecast import MomentumForecaster
-from quant_pipeline.news import MockNewsSource
-from quant_pipeline.optimize import MeanVarianceOptimizer
-from quant_pipeline.risk import SampleCovRisk
-from quant_pipeline.score import BacktestScorer, RiskScorer
+
+from backtest import Backtest
+from data import MockDataSource
+from execute import PaperExecutor
+from forecast import MomentumForecaster
+from news import MockNewsSource
+from optimize import MeanVarianceOptimizer
+from risk import SampleCovRisk
+from score import BacktestScorer, RiskScorer
 
 
 def main():
     bt = Backtest(
-        source=MockDataSource(),              # Layer 1 · Data
-        news_source=MockNewsSource(),         # Layer 1 · News
-        forecaster=MomentumForecaster(),      # Layer 2 · Forecast
-        risk=SampleCovRisk(),                 # Layer 3 · Risk
-        optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size
-        executor=PaperExecutor(),             # Layer 5 · Execute
+        source=MockDataSource(),  # Layer 1 · Data
+        news_source=MockNewsSource(),  # Layer 1 · News
+        forecaster=MomentumForecaster(),  # Layer 2 · Forecast
+        risk=SampleCovRisk(),  # Layer 3 · Risk
+        optimizer=MeanVarianceOptimizer(),  # Layer 4 · Pick & size
+        executor=PaperExecutor(),  # Layer 5 · Execute
     )
     data, records, baseline = bt.run()
-    card = BacktestScorer().score(records, baseline)   # Layer 6 · Score
-    report = RiskScorer().score(records)               # Layer 6 · Risk Report
+    card = BacktestScorer().score(records, baseline)  # Layer 6 · Score
+    report = RiskScorer().score(records)  # Layer 6 · Risk Report
 
     print("=" * 52)
     print("  NVDA & GOOG pair  —  BASELINE (no quantum)")

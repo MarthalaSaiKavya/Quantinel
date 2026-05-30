@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from .contracts import (
+from contracts import (
     DataSource,
     Executor,
     Forecast,
