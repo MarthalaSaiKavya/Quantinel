@@ -7,22 +7,35 @@ contract, this prints a scorecard and risk report. To go quantum, change ONE lin
     optimizer  = QaoaOptimizer()        # instead of MeanVarianceOptimizer()
 Nothing else moves.
 
-Run:  python -m quant_pipeline.run_baseline
+Run:  python run_baseline.py
 """
+import os
+
 from backtest import Backtest
 from data import MockDataSource
 from execute import PaperExecutor
 from forecast import MomentumForecaster
-from news import MockNewsSource
+from news import ExaNewsSource, MockNewsSource
 from optimize import MeanVarianceOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
 
 
+def _get_news_source():
+    """Use Exa if API key is available, otherwise fall back to mock."""
+    key = os.environ.get("EXA_API_KEY", "")
+    if key:
+        print(f"  News source: Exa (live)  —  key {key[:6]}...\n")
+        return ExaNewsSource(api_key=key)
+    print("  News source: Mock (offline)  —  set EXA_API_KEY for real news\n")
+    return MockNewsSource()
+
+
 def main():
+    news_source = _get_news_source()
     bt = Backtest(
         source=MockDataSource(),              # Layer 1 · Data
-        news_source=MockNewsSource(),         # Layer 1 · News
+        news_source=news_source,              # Layer 1 · News (Exa or mock)
         forecaster=MomentumForecaster(),      # Layer 2 · Forecast
         risk=SampleCovRisk(),                 # Layer 3 · Risk
         optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size
