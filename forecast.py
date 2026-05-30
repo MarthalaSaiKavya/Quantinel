@@ -277,7 +277,7 @@ class ChronosForecaster:
             self._pipeline = ChronosPipeline.from_pretrained(
                 self.model_name,
                 device_map=self.device,
-                torch_dtype=torch.float32,
+                dtype=torch.float32,
             )
         return self._pipeline
 
@@ -306,9 +306,9 @@ class ChronosForecaster:
 
             context = torch.tensor(col.to_numpy(dtype=float), dtype=torch.float32)
 
-            # forecast() returns (samples, quantiles) tensors;
-            # samples shape: (num_samples, horizon_days)
-            forecast_samples, _ = pipeline.predict(
+            # predict() returns a single samples tensor
+            # shape: (batch=1, num_samples, horizon_days)
+            forecast_samples = pipeline.predict(
                 context.unsqueeze(0),
                 prediction_length=horizon_days,
                 num_samples=self.num_samples,
