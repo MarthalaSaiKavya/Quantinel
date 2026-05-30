@@ -135,6 +135,9 @@ class TinyMockDataSource:
     No randomness, no Cholesky — just two tickers with hand-picked OHLCV
     so that expected values (close_prices, returns, slice_until) can be
     asserted by hand.
+
+    Also provides ``load_news()`` for mock news/world-event data that
+    downstream layers (e.g. sentiment-aware forecasters) can consume.
     """
 
     def load(self) -> MarketData:
@@ -162,3 +165,122 @@ class TinyMockDataSource:
             ),
         }
         return MarketData(tickers=["AAA", "BBB"], bars=bars)
+
+    @staticmethod
+    def load_news() -> list[dict]:
+        """Return deterministic mock news / world-event data.
+
+        Each item is a JSON-serializable dict with:
+            - ``date``       : ISO-8601 date string (aligned with OHLCV dates)
+            - ``ticker``     : affected ticker, or ``"MACRO"`` for broad events
+            - ``headline``   : human-readable headline
+            - ``source``     : news outlet name
+            - ``sentiment``  : float in [-1.0, +1.0]  (neg = bearish, pos = bullish)
+            - ``category``   : ``"earnings"`` | ``"macro"`` | ``"product"`` | ``"analyst"`` | ``"geopolitical"``
+            - ``relevance``  : float in [0.0, 1.0]  (how relevant to the ticker)
+
+        Headlines are chosen to logically match the hand-picked price
+        movements so tests can assert sentiment ↔ return correlation.
+
+        Returns
+        -------
+        list[dict]
+            A list of 10 news items spanning the 5 trading days.
+        """
+        return [
+            # ── Day 1  (2025-01-06) ── AAA +2%, BBB +2%  → bullish news
+            {
+                "date": "2025-01-06",
+                "ticker": "AAA",
+                "headline": "AAA Corp beats Q4 earnings estimates by 12%",
+                "source": "Reuters",
+                "sentiment": 0.85,
+                "category": "earnings",
+                "relevance": 0.95,
+            },
+            {
+                "date": "2025-01-06",
+                "ticker": "MACRO",
+                "headline": "Fed signals potential rate cuts in H1 2025",
+                "source": "Bloomberg",
+                "sentiment": 0.60,
+                "category": "macro",
+                "relevance": 0.70,
+            },
+            # ── Day 2  (2025-01-07) ── AAA −1%, BBB +2%  → mixed
+            {
+                "date": "2025-01-07",
+                "ticker": "AAA",
+                "headline": "Analysts downgrade AAA citing valuation concerns",
+                "source": "CNBC",
+                "sentiment": -0.45,
+                "category": "analyst",
+                "relevance": 0.80,
+            },
+            {
+                "date": "2025-01-07",
+                "ticker": "BBB",
+                "headline": "BBB Inc announces new product line, shares rise",
+                "source": "MarketWatch",
+                "sentiment": 0.70,
+                "category": "product",
+                "relevance": 0.90,
+            },
+            # ── Day 3  (2025-01-08) ── AAA +4%, BBB −3.8%  → divergence
+            {
+                "date": "2025-01-08",
+                "ticker": "AAA",
+                "headline": "AAA secures $2B government contract for AI infrastructure",
+                "source": "WSJ",
+                "sentiment": 0.90,
+                "category": "product",
+                "relevance": 0.95,
+            },
+            {
+                "date": "2025-01-08",
+                "ticker": "BBB",
+                "headline": "BBB faces supply chain disruptions in Asia-Pacific",
+                "source": "Financial Times",
+                "sentiment": -0.65,
+                "category": "geopolitical",
+                "relevance": 0.85,
+            },
+            # ── Day 4  (2025-01-09) ── AAA −1.9%, BBB +6%  → reversal
+            {
+                "date": "2025-01-09",
+                "ticker": "AAA",
+                "headline": "AAA CFO sells $15M in insider shares",
+                "source": "SEC Filing",
+                "sentiment": -0.40,
+                "category": "earnings",
+                "relevance": 0.75,
+            },
+            {
+                "date": "2025-01-09",
+                "ticker": "BBB",
+                "headline": "BBB resolves supply issues; analyst upgrades to Buy",
+                "source": "Goldman Sachs",
+                "sentiment": 0.80,
+                "category": "analyst",
+                "relevance": 0.90,
+            },
+            # ── Day 5  (2025-01-10) ── AAA +3.9%, BBB +1.9%  → broad rally
+            {
+                "date": "2025-01-10",
+                "ticker": "MACRO",
+                "headline": "US jobs report beats expectations; markets rally broadly",
+                "source": "Bloomberg",
+                "sentiment": 0.75,
+                "category": "macro",
+                "relevance": 0.80,
+            },
+            {
+                "date": "2025-01-10",
+                "ticker": "AAA",
+                "headline": "AAA launches next-gen chip platform at CES 2025",
+                "source": "The Verge",
+                "sentiment": 0.65,
+                "category": "product",
+                "relevance": 0.85,
+            },
+        ]

@@ -408,3 +408,134 @@ class TestDownstreamSmoke:
         cov = rets.cov() * 252
         assert cov.shape == (len(mock_data.tickers), len(mock_data.tickers))
         assert not cov.isna().any().any()
+
+
+# ============================================================================
+# 10. NEWS / WORLD EVENT DATA
+# ============================================================================
+
+class TestNewsData:
+    """Verify TinyMockDataSource.load_news() returns well-structured data."""
+
+    @pytest.fixture
+    def news(self):
+        return TinyMockDataSource.load_news()
+
+    @pytest.fixture
+    def tiny_dates(self, tiny_data):
+        return tiny_data.bars["AAA"].index
+
+    # ── structure ──
+
+    def test_returns_list(self, news):
+        assert isinstance(news, list)
+
+    def test_not_empty(self, news):
+        assert len(news) > 0
+
+    def test_each_item_is_dict(self, news):
+        for item in news:
+            assert isinstance(item, dict)
+
+    def test_required_keys(self, news):
+        required = {"date", "ticker", "headline", "source", "sentiment", "category", "relevance"}
+        for item in news:
+            assert required.issubset(item.keys()), f"Missing keys in {item}"
+
+    # ── value constraints ──
+
+    def test_sentiment_in_range(self, news):
+        for item in news:
+            assert -1.0 <= item["sentiment"] <= 1.0, f"Sentiment out of range: {item}"
+
+    def test_relevance_in_range(self, news):
+        for item in news:
+            assert 0.0 <= item["relevance"] <= 1.0, f"Relevance out of range: {item}"
+
+    def test_valid_categories(self, news):
+        allowed = {"earnings", "macro", "product", "analyst", "geopolitical"}
+        for item in news:
+            assert item["category"] in allowed, f"Invalid category: {item['category']}"
+
+    def test_dates_are_iso_strings(self, news):
+        for item in news:
+            # must parse without error
+            pd.Timestamp(item["date"])
+
+    # ── alignment with OHLCV dates ──
+
+    def test_news_dates_within_ohlcv_range(self, news, tiny_dates):
+        ohlcv_dates = set(tiny_dates.strftime("%Y-%m-%d"))
+        for item in news:
+            assert item["date"] in ohlcv_dates, (
+                f"News date {item['date']} is outside OHLCV range"
+            )
+
+    def test_every_ohlcv_date_has_news(self, news, tiny_dates):
+        """Each trading day should have at least one news item."""
+        news_dates = {item["date"] for item in news}
+        for d in tiny_dates:
+            assert d.strftime("%Y-%m-%d") in news_dates, f"No news for {d.date()}"
+
+    # ── ticker coverage ──
+
+    def test_ticker_specific_news_exists(self, news):
+        tickers_mentioned = {item["ticker"] for item in news}
+        assert "AAA" in tickers_mentioned
+        assert "BBB" in tickers_mentioned
+
+    def test_macro_news_exists(self, news):
+        assert any(item["ticker"] == "MACRO" for item in news)
+
+    # ── JSON serializable ──
+
+    def test_json_serializable(self, news):
+        import json
+        # should not raise
+        serialized = json.dumps(news)
+        roundtrip = json.loads(serialized)
+        assert roundtrip == news
+
+    # ── filtering patterns (how downstream layers would use it) ──
+
+    def test_filter_by_ticker(self, news):
+        aaa_news = [n for n in news if n["ticker"] == "AAA"]
+        assert len(aaa_news) >= 1
+
+    def test_filter_by_date(self, news):
+        day1 = [n for n in news if n["date"] == "2025-01-06"]
+        assert len(day1) >= 1
+
+    def test_filter_by_category(self, news):
+        earnings = [n for n in news if n["category"] == "earnings"]
+        assert len(earnings) >= 1
+
+    def test_sentiment_return_correlation(self, tiny_data):
+        """Bullish news days should broadly align with positive returns.
+
+        We check that the *average* sentiment for AAA on days where AAA
+        had a positive return is higher than on days with a negative return.
+        This validates that the mock news is plausible, not random.
+        """
+        news = TinyMockDataSource.load_news()
+        rets = tiny_data.returns()
+
+        # Build per-date average sentiment for AAA
+        aaa_news = [n for n in news if n["ticker"] == "AAA"]
+        date_sentiment: dict[str, float] = {}
+        for n in aaa_news:
+            date_sentiment.setdefault(n["date"], []).append(n["sentiment"])
+        avg_sent = {d: np.mean(s) for d, s in date_sentiment.items()}
+
+        pos_sents, neg_sents = [], []
+        for date, ret_val in rets["AAA"].items():
+            d_str = date.strftime("%Y-%m-%d")
+            if d_str in avg_sent:
+                (pos_sents if ret_val > 0 else neg_sents).append(avg_sent[d_str])
+
+        # At least one positive and one negative return day should have news
+        assert len(pos_sents) >= 1 and len(neg_sents) >= 1
+        assert np.mean(pos_sents) > np.mean(neg_sents), (
+            "Bullish sentiment should average higher on up-days than down-days"
+        )
+
