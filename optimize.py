@@ -15,11 +15,11 @@ from __future__ import annotations
 import itertools
 import json
 import os
-import time
 
 import numpy as np
 
 from contracts import Forecast, RiskModel, TargetPortfolio
+from xpyq_client import parse_json_stdout, run_xpyq_code
 
 
 class MeanVarianceOptimizer:
@@ -112,14 +112,14 @@ class QaoaOptimizer:
         api_key: str | None = None,
         risk_aversion: float = 8.0,
         poll_secs: float = 0.4,
-        timeout: float = 20.0,
+        timeout: float = 60.0,
     ):
         self.api_key = api_key or os.environ.get("XPYQ_KEY", "")
         self.risk_aversion = risk_aversion
         self.poll_secs = poll_secs
         self.timeout = timeout
         self._fallback = DiscreteQuboOptimizer(risk_aversion=risk_aversion)
-        self._disabled = not bool(self.api_key)
+        self._auth_failed = not bool(self.api_key)
         self._stats = {
             "calls": 0,
             "xpyq_completed": 0,
@@ -128,50 +128,17 @@ class QaoaOptimizer:
         }
 
     def _run_code(self, code: str) -> dict:
-        import requests
-
-        if self._disabled:
+        if self._auth_failed:
             return {"status": "disabled", "stdout": ""}
-
-        BASE = "https://xpyq-lib-production.up.railway.app"
-        H = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        run = requests.post(
-            f"{BASE}/api/v1/compute/runs",
-            headers=H,
-            json={"code": code, "name": "qaoa_opt"},
-            timeout=10,
-        ).json()
-        run_id = run.get("run_id") or run.get("id")
-        if not run_id:
-            self._disabled = True
-            return {"status": "failed", "stdout": ""}
-
-        deadline = time.time() + self.timeout
-        while time.time() < deadline:
-            r = requests.get(
-                f"{BASE}/api/v1/compute/runs/{run_id}",
-                headers=H,
-                timeout=10,
-            ).json()
-            if r["status"] in ("completed", "failed", "timed_out", "cancelled"):
-                return r
-            time.sleep(self.poll_secs)
-        return {"status": "timed_out", "stdout": ""}
+        return run_xpyq_code(self.api_key, code, name="qaoa_opt", timeout=self.timeout)
 
     @staticmethod
     def _parse_json_stdout(stdout: str) -> dict:
-        for line in reversed(stdout.splitlines()):
-            line = line.strip()
-            if line.startswith("{") and line.endswith("}"):
-                return json.loads(line)
-        raise ValueError("xpyq stdout did not contain a JSON object")
+        return parse_json_stdout(stdout)
 
     def solve(self, forecast: Forecast, risk: RiskModel) -> TargetPortfolio:
         self._stats["calls"] += 1
-        if self._disabled:
+        if self._auth_failed:
             self._stats["fallbacks"] += 1
             return self._fallback.solve(forecast, risk)
 
@@ -187,7 +154,7 @@ class QaoaOptimizer:
 import numpy as _np, json
 Q = from_numpy(_np.array({Q_list}, dtype=_np.float32))
 eigvals_mat, eigvecs_mat = linalg.eigh(Q)
-eigvals_arr, eigvecs_arr = eigvals_mat.numpy()
+eigvals_arr, eigvecs_arr = [_np.asarray(x, dtype=_np.float32) for x in eigvals_mat.numpy()]
 ground_state = eigvecs_arr[:, 0].tolist()
 print(json.dumps({{"ground_state": ground_state, "eigvals": eigvals_arr.tolist()}}))
 """
@@ -198,22 +165,35 @@ print(json.dumps({{"ground_state": ground_state, "eigvals": eigvals_arr.tolist()
             self._stats["status_counts"][status] = (
                 self._stats["status_counts"].get(status, 0) + 1
             )
+            if status == "auth_failed":
+                self._auth_failed = True
             if result["status"] != "completed" or not result.get("stdout", "").strip():
-                if result["status"] in ("failed", "timed_out", "cancelled"):
-                    self._disabled = True
                 self._stats["fallbacks"] += 1
                 return self._fallback.solve(forecast, risk)
             out = self._parse_json_stdout(result["stdout"])
             ground_state = np.array(out["ground_state"])
             self._stats["xpyq_completed"] += 1
         except Exception:
-            self._disabled = True
             self._stats["fallbacks"] += 1
             return self._fallback.solve(forecast, risk)
 
-        # Decode: sign of each component = long (+1) or short (-1)
-        w = np.sign(ground_state)
-        w[w == 0] = 1.0   # break ties long
+        # Decode ground-state eigenvector into dollar-neutral long/short weights.
+        gs = ground_state
+        w = np.sign(gs)
+        zero_mask = w == 0
+        if zero_mask.any():
+            w[zero_mask] = np.sign(mu[zero_mask])
+        w[w == 0] = 1.0
+
+        if np.all(w > 0) or np.all(w < 0):
+            # Same sign on all names → force market-neutral spread using mu.
+            order = np.argsort(mu)
+            w = np.zeros(len(tickers))
+            w[order[-1]] = 1.0
+            w[order[0]] = -1.0
+        else:
+            w = w - w.mean()
+
         gross = np.abs(w).sum()
         if gross > 0:
             w = w / gross
@@ -228,5 +208,5 @@ print(json.dumps({{"ground_state": ground_state, "eigvals": eigvals_arr.tolist()
             "xpyq_completed": self._stats["xpyq_completed"],
             "fallbacks": self._stats["fallbacks"],
             "status_counts": dict(self._stats["status_counts"]),
-            "disabled": self._disabled,
+            "disabled": self._auth_failed,
         }
