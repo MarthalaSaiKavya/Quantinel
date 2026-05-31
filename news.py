@@ -141,9 +141,15 @@ class ExaNewsSource:
         cache_key = f"{as_of.date().isoformat()}_{'_'.join(sorted(tickers))}"
         cache_file = self.cache_dir / f"{cache_key}.json"
 
-        if cache_file.exists():
+        if cache_file.exists() and cache_file.stat().st_size > 10:
             feed = self._load(cache_file, as_of)
+            if not feed.articles:        # empty cache from a prior failed fetch
+                cache_file.unlink()
+                feed = None
         else:
+            feed = None
+
+        if feed is None:
             articles = self._fetch_exa(tickers, as_of)
             self._save(cache_file, articles)
             feed = NewsFeed(as_of=as_of, articles=articles)
@@ -161,10 +167,9 @@ class ExaNewsSource:
             from exa_py import Exa
             exa = Exa(api_key=self.api_key)
             for ticker in tickers:
-                results = exa.search_and_contents(
+                results = exa.search(
                     f"{ticker} stock news earnings analyst outlook",
                     num_results=self.n_results,
-                    text=True,
                     start_published_date=start_date,
                     end_published_date=end_date,
                 )
