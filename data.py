@@ -126,6 +126,63 @@ class MockDataSource:
 
 
 # ============================================================================
+# LIVE DATA SOURCE — real OHLCV via yfinance
+# ============================================================================
+
+class YFinanceDataSource:
+    """Implements DataSource: load() -> MarketData.
+
+    Fetches real daily OHLCV from Yahoo Finance for the given tickers and
+    date range. Drop-in replacement for MockDataSource — same contract, no
+    downstream changes needed.
+
+    Parameters
+    ----------
+    tickers : list[str]
+        Ticker symbols, e.g. ["NVDA", "GOOG"].
+    start : str
+        Start date in "YYYY-MM-DD" format.
+    end : str | None
+        End date (exclusive). Defaults to today.
+    """
+
+    def __init__(
+        self,
+        tickers: list[str] | None = None,
+        start: str = "2023-01-01",
+        end: str | None = None,
+    ):
+        self.tickers = tickers or ["NVDA", "GOOG"]
+        self.start = start
+        self.end = end or pd.Timestamp.today().strftime("%Y-%m-%d")
+
+    def load(self) -> MarketData:
+        import yfinance as yf
+
+        raw = yf.download(
+            self.tickers,
+            start=self.start,
+            end=self.end,
+            auto_adjust=True,
+            progress=False,
+        )
+
+        # yfinance returns a MultiIndex frame when multiple tickers are given;
+        # a flat frame when only one ticker is given. Normalise to flat per ticker.
+        if isinstance(raw.columns, pd.MultiIndex):
+            frames = {t: raw.xs(t, axis=1, level=1).dropna() for t in self.tickers}
+        else:
+            frames = {self.tickers[0]: raw.dropna()}
+
+        bars: dict[str, pd.DataFrame] = {}
+        for ticker, df in frames.items():
+            df = df.rename(columns=str.lower)
+            bars[ticker] = df[["open", "high", "low", "close", "volume"]]
+
+        return MarketData(tickers=self.tickers, bars=bars)
+
+
+# ============================================================================
 # TINY STATIC DATA SOURCE — deterministic 5-row dataset for unit tests
 # ============================================================================
 

@@ -22,6 +22,9 @@ from score import BacktestScorer, RiskScorer
 
 def main():
     bt = Backtest(
+        # TODO: switch to YFinanceDataSource for real NVDA/GOOG data
+        # from data import YFinanceDataSource
+        # source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start="2023-01-01"),
         source=MockDataSource(),  # Layer 1 · Data
         news_source=MockNewsSource(),  # Layer 1 · News
         forecaster=MomentumForecaster(),  # Layer 2 · Forecast
