@@ -45,6 +45,39 @@ class MarketData:
 
 
 @dataclass(frozen=True)
+class NewsArticle:
+    """A single news article associated with a ticker, including NLP sentiment."""
+
+    ticker: str
+    title: str
+    snippet: str
+    url: str
+    published_date: pd.Timestamp
+    sentiment_score: float  # [-1, +1]  +1 = bullish, -1 = bearish
+
+
+@dataclass(frozen=True)
+class NewsFeed:
+    """OUTPUT of Layer 1 (Data, news path).  INPUT to Risk."""
+
+    as_of: pd.Timestamp
+    articles: list[NewsArticle]
+
+    def sentiment_scores(self, lookback_days: int = 5) -> dict[str, float]:
+        """Per-ticker average sentiment over recent lookback window."""
+        cutoff = self.as_of - pd.Timedelta(days=lookback_days)
+        groups: dict[str, list[float]] = {}
+        for a in self.articles:
+            if a.published_date >= cutoff:
+                groups.setdefault(a.ticker, []).append(a.sentiment_score)
+        return {t: sum(s) / len(s) for t, s in groups.items() if s}
+
+    def article_count(self, ticker: str) -> int:
+        """Number of articles for a ticker in this feed."""
+        return sum(1 for a in self.articles if a.ticker == ticker)
+
+
+@dataclass(frozen=True)
 class Forecast:
     """OUTPUT of Layer 2 (Forecast).  INPUT to Pick & size."""
 
@@ -154,71 +187,6 @@ class Scorecard:
     information_coefficient: float
     vs_baseline_sharpe: float
     equity_curve: pd.Series
-
-
-# ============================================================================
-# LAYER INTERFACES  (each teammate owns exactly one of these)
-# ============================================================================
-
-
-@dataclass(frozen=True)
-class NewsItem:
-    """A single piece of world-news used by ChaosEngine."""
-
-    timestamp: pd.Timestamp
-    headline: str
-    sentiment_score: float  # -1.0 (very negative) .. +1.0 (very positive)
-    source: str = ""
-
-
-@dataclass(frozen=True)
-class NewsArticle:
-    """A single news article associated with a ticker, including NLP sentiment."""
-
-    ticker: str
-    title: str
-    snippet: str
-    url: str
-    published_date: pd.Timestamp
-    sentiment_score: float  # [-1, +1]  +1 = bullish, -1 = bearish
-
-
-@dataclass(frozen=True)
-class NewsFeed:
-    """OUTPUT of Layer 1 (Data, news path).  INPUT to Risk."""
-
-    as_of: pd.Timestamp
-    articles: list[NewsArticle]
-
-    def sentiment_scores(self, lookback_days: int = 5) -> dict[str, float]:
-        """Per-ticker average sentiment over recent lookback window."""
-        cutoff = self.as_of - pd.Timedelta(days=lookback_days)
-        groups: dict[str, list[float]] = {}
-        for a in self.articles:
-            pub = a.published_date
-            if getattr(pub, 'tzinfo', None) is not None:
-                pub = pub.tz_localize(None)
-            if pub >= cutoff:
-                groups.setdefault(a.ticker, []).append(a.sentiment_score)
-        return {t: sum(s) / len(s) for t, s in groups.items() if s}
-
-    def article_count(self, ticker: str) -> int:
-        """Number of articles for a ticker in this feed."""
-        return sum(1 for a in self.articles if a.ticker == ticker)
-
-
-@dataclass(frozen=True)
-class ChaosSignal:
-    """OUTPUT of ChaosEngine.evaluate().  Can be used to override Forecast or TargetPortfolio."""
-
-    as_of: pd.Timestamp
-    crash_probability: float  # 0..1 estimated probability of an adverse wildcard event
-    event_label: str  # human-readable type e.g. "market_crash", "liquidity_crisis"
-    confidence: float  # 0..1 model confidence in the signal
-    ticker_adjustments: dict[
-        str, float
-    ]  # ticker -> weight multiplier applied by adjust_portfolio()
-    reasoning: str = ""  # plain-English recommendation surfaced to the user
 
 
 # ============================================================================

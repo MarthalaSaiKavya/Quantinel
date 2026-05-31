@@ -124,11 +124,13 @@ class RiskScorer:
             total = per_agent_total[label]
             br = per_agent_breaches.get(label, 0)
             avg_var = 0.0  # could compute from records, simplified for now
-            sub_reports.append(SubAgentReport(
-                agent_label=label,
-                avg_var_95=avg_var,
-                var_breach_rate=br / total if total else 0.0,
-            ))
+            sub_reports.append(
+                SubAgentReport(
+                    agent_label=label,
+                    avg_var_95=avg_var,
+                    var_breach_rate=br / total if total else 0.0,
+                )
+            )
 
         return RiskReport(
             var_breaches=breaches,

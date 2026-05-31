@@ -9,58 +9,28 @@ Nothing else moves.
 
 Run:  python run_baseline.py
 """
-import os
-
+from dotenv import load_dotenv
+load_dotenv()  # loads IBM_QUANTUM_TOKEN etc. from .env before any imports use them
 from backtest import Backtest
-from chaos import ChaosEngine, MockNewsSource
 from data import MockDataSource
 from execute import PaperExecutor
-from forecast import MomentumForecaster
-from optimize import MeanVarianceOptimizer
+from forecast import ChronosForecaster, QuantumForecaster
+from optimize import MeanVarianceOptimizer, QaoaOptimizer
 from risk import SampleCovRisk
-from score import BacktestScorer
-
-
-def _load_dotenv():
-    """Load .env file into os.environ (no extra dependencies)."""
-    env_path = os.path.join(os.path.dirname(__file__) or ".", ".env")
-    if not os.path.exists(env_path):
-        return
-    for line in open(env_path):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+from score import BacktestScorer, RiskScorer
 
 
 def main():
-    # Load .env so IBM_QUANTUM_TOKEN and friends are available before anything
-    # constructs a sampler.  Safe to call even if .env doesn't exist.
-    _load_dotenv()
-
-    # ── ChaosEngine backend selection ────────────────────────────────────────
-    # LOCAL  (default): leave IBM_QUANTUM_TOKEN blank in .env — runs entirely
-    #                   on your CPU via Aer statevector simulation. No queue.
-    # CLOUD           : set IBM_QUANTUM_TOKEN (and optionally
-    #                   IBM_QUANTUM_CHANNEL / IBM_QUANTUM_BACKEND) in .env to
-    #                   route VQC training to real IBM Quantum hardware.
-    # No code change needed — ChaosEngine reads the env vars automatically.
-    # ─────────────────────────────────────────────────────────────────────────
-    engine = ChaosEngine()
-    news_src = MockNewsSource()   # swap for a RealNewsSource for live news
-
     bt = Backtest(
         source=MockDataSource(),              # Layer 1 · Data
-        forecaster=MomentumForecaster(),      # Layer 2 · Forecast
+        forecaster=QuantumForecaster(),      # Layer 2 · Forecast   <-- swap QuantumForecaster() here
         risk=SampleCovRisk(),                 # Layer 3 · Risk
-        optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size
+        optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size <-- swap QaoaOptimizer() here
         executor=PaperExecutor(),             # Layer 5 · Execute
     )
     data, records, baseline = bt.run()
-    card = BacktestScorer().score(records, baseline)   # Layer 6 · Score
+    card = BacktestScorer().score(records, baseline)  # Layer 6 · Score
+    report = RiskScorer().score(records)  # Layer 6 · Risk Report
 
     print("=" * 52)
     print("  NVDA & GOOG pair  —  BASELINE (no quantum)")
@@ -80,17 +50,15 @@ def main():
         print(f"    {t:5s} {w:+.3f}")
     print("=" * 52)
 
-    # ── ChaosEngine evaluation on the final date ──────────────────────────
-    as_of = last.as_of
-    news  = news_src.fetch(as_of=as_of)
-    signal = engine.evaluate(data, news, as_of=as_of)
-
     print()
     print("=" * 52)
-    print("  CHAOS ENGINE SIGNAL")
+    print("  RISK REPORT")
     print("=" * 52)
-    for line in signal.reasoning.splitlines():
-        print(f"  {line}")
+    print(f"  VaR breaches (agg)     : {report.var_breaches}")
+    print(f"  avg disagreement       : {report.avg_disagreement:.3f}")
+    print(f"  max disagreement       : {report.max_disagreement:.3f}")
+    for sa in report.sub_agent_reports:
+        print(f"  {sa.agent_label:12s} breach rate: {sa.var_breach_rate:.3f}")
     print("=" * 52)
 
 

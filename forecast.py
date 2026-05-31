@@ -93,9 +93,9 @@ class QuantumForecaster:
         self.reps = reps
         self.max_iter = max_iter
         self.ibm_token = ibm_token or os.getenv("IBM_QUANTUM_TOKEN")
-        self.ibm_instance = ibm_instance or os.getenv("IBM_QUANTUM_INSTANCE", "ibm-q/open/main")
+        self.ibm_instance = ibm_instance or os.getenv("IBM_QUANTUM_INSTANCE") or None
         self.ibm_backend = ibm_backend or os.getenv("IBM_QUANTUM_BACKEND")
-        self.ibm_channel = ibm_channel or os.getenv("IBM_QUANTUM_CHANNEL", "ibm_quantum")
+        self.ibm_channel = ibm_channel or os.getenv("IBM_QUANTUM_CHANNEL", "ibm_quantum_platform")
         self.scale = scale
 
     # ------------------------------------------------------------------
@@ -103,7 +103,9 @@ class QuantumForecaster:
     # ------------------------------------------------------------------
 
     def _build_sampler(self):
-        """Return a Qiskit Sampler primitive — IBM Quantum hardware or local Aer."""
+        """Return (sampler, pass_manager) — IBM Quantum hardware or local Aer."""
+        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+
         if self.ibm_token:
             from qiskit_ibm_runtime import QiskitRuntimeService
             from qiskit_ibm_runtime import SamplerV2 as IBMSampler
@@ -111,18 +113,22 @@ class QuantumForecaster:
             service = QiskitRuntimeService(
                 channel=self.ibm_channel,
                 token=self.ibm_token,
-                instance=self.ibm_instance,
+                **({"instance": self.ibm_instance} if self.ibm_instance else {}),
             )
             backend = (
                 service.backend(self.ibm_backend)
                 if self.ibm_backend
                 else service.least_busy(operational=True, simulator=False)
             )
-            return IBMSampler(mode=backend)
+            pass_manager = generate_preset_pass_manager(optimization_level=1, backend=backend)
+            return IBMSampler(mode=backend), pass_manager
         else:
+            from qiskit_aer import AerSimulator
             from qiskit_aer.primitives import SamplerV2 as AerSampler
 
-            return AerSampler()
+            backend = AerSimulator()
+            pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+            return AerSampler(), pass_manager
 
     def _make_dataset(
         self, col: pd.Series, horizon_days: int
@@ -147,7 +153,7 @@ class QuantumForecaster:
 
         return np.array(X, dtype=float), np.array(y, dtype=int)
 
-    def _train_vqc(self, X: np.ndarray, y: np.ndarray, sampler):
+    def _train_vqc(self, X: np.ndarray, y: np.ndarray, sampler, pass_manager):
         """
         Scale features, build circuit, train VQC, return (vqc, scaler).
 
@@ -172,6 +178,7 @@ class QuantumForecaster:
             ansatz=ansatz,
             optimizer=optimizer,
             sampler=sampler,
+            pass_manager=pass_manager,
         )
         vqc.fit(X_scaled, y)
         return vqc, scaler
@@ -182,7 +189,7 @@ class QuantumForecaster:
 
     def predict(self, data: MarketData, as_of, horizon_days: int) -> Forecast:
         returns = data.returns()
-        sampler = self._build_sampler()
+        sampler, pass_manager = self._build_sampler()
 
         expected_returns: dict[str, float] = {}
         direction: dict[str, int] = {}
@@ -200,7 +207,7 @@ class QuantumForecaster:
                 expected_returns[ticker] = 0.0
                 continue
 
-            vqc, scaler = self._train_vqc(X, y, sampler)
+            vqc, scaler = self._train_vqc(X, y, sampler, pass_manager)
 
             # Inference: most recent feature_window returns as the input vector.
             recent = col.tail(self.feature_window).to_numpy(dtype=float)
@@ -277,7 +284,7 @@ class ChronosForecaster:
             self._pipeline = ChronosPipeline.from_pretrained(
                 self.model_name,
                 device_map=self.device,
-                torch_dtype=torch.float32,
+                dtype=torch.float32,
             )
         return self._pipeline
 
@@ -306,9 +313,9 @@ class ChronosForecaster:
 
             context = torch.tensor(col.to_numpy(dtype=float), dtype=torch.float32)
 
-            # forecast() returns (samples, quantiles) tensors;
-            # samples shape: (num_samples, horizon_days)
-            forecast_samples, _ = pipeline.predict(
+            # predict() returns a single samples tensor
+            # shape: (batch=1, num_samples, horizon_days)
+            forecast_samples = pipeline.predict(
                 context.unsqueeze(0),
                 prediction_length=horizon_days,
                 num_samples=self.num_samples,
