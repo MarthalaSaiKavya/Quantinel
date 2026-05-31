@@ -11,6 +11,7 @@ recommends what to use next.
 Run:
   set -a; source .env; set +a; .venv/bin/python run_master.py
 """
+
 from __future__ import annotations
 
 import os
@@ -29,7 +30,7 @@ from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
 
 XPYQ_KEY = os.environ.get("XPYQ_KEY", "")
-EXA_KEY = os.environ.get("EXA_KEY", "")
+EXA_KEY = os.environ.get("EXA_API_KEY", os.environ.get("EXA_KEY", ""))
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
 XPYQ_TIMEOUT = float(os.environ.get("XPYQ_TIMEOUT", "60"))
 RISK_N_PATHS = int(os.environ.get("QUANTINEL_N_PATHS", "10000"))
@@ -65,10 +66,14 @@ def run_pipeline(
         source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start=START),
         news_source=news_source or make_news_source(EXA_KEY),
         forecaster=forecaster,
-        risk=SampleCovRisk(n_paths=risk_n_paths if risk_n_paths is not None else RISK_N_PATHS),
+        risk=SampleCovRisk(
+            n_paths=risk_n_paths if risk_n_paths is not None else RISK_N_PATHS
+        ),
         optimizer=optimizer,
         executor=PaperExecutor(),
-        rebalance_every=rebalance_every if rebalance_every is not None else REBALANCE_EVERY,
+        rebalance_every=rebalance_every
+        if rebalance_every is not None
+        else REBALANCE_EVERY,
     )
     data, records, baseline = bt.run()
     scorecard = BacktestScorer().score(records, baseline)
@@ -101,7 +106,9 @@ def summarize(result: PipelineResult) -> dict:
         "rebalances": len(result.records),
         "sharpe": round(result.scorecard.sharpe, 3),
         "total_return_pct": round(result.scorecard.total_return * 100, 2),
-        "directional_accuracy_pct": round(result.scorecard.directional_accuracy * 100, 1),
+        "directional_accuracy_pct": round(
+            result.scorecard.directional_accuracy * 100, 1
+        ),
         "information_coefficient": round(result.scorecard.information_coefficient, 3),
         "vs_50_50_sharpe": round(result.scorecard.vs_baseline_sharpe, 3),
         "final_equity": round(float(equity.iloc[-1]), 3),
@@ -125,7 +132,10 @@ def print_run(summary: dict):
     print(f"  final equity    : {summary['final_equity']:6.3f}")
     print(f"  VaR breaches    : {summary['var_breaches']}")
     print(f"  avg disagreem   : {summary['avg_disagreement']:.3f}")
-    print("  last weights    : " + ", ".join(f"{t} {w:+.3f}" for t, w in summary["last_weights"].items()))
+    print(
+        "  last weights    : "
+        + ", ".join(f"{t} {w:+.3f}" for t, w in summary["last_weights"].items())
+    )
     if summary["engine_diagnostics"]:
         print("  engine trace    :")
         for role, diag in summary["engine_diagnostics"].items():
@@ -146,7 +156,8 @@ def build_trace(normal: dict, quantum: dict) -> tuple[dict, list[str]]:
         "quantum_minus_normal_directional_accuracy_pct": round(
             quantum["directional_accuracy_pct"] - normal["directional_accuracy_pct"], 1
         ),
-        "quantum_minus_normal_var_breaches": quantum["var_breaches"] - normal["var_breaches"],
+        "quantum_minus_normal_var_breaches": quantum["var_breaches"]
+        - normal["var_breaches"],
         "quantum_minus_normal_final_equity": round(
             quantum["final_equity"] - normal["final_equity"], 3
         ),
@@ -173,7 +184,11 @@ def build_trace(normal: dict, quantum: dict) -> tuple[dict, list[str]]:
         ),
         (
             "Final weights were "
-            + ("the same" if normal["last_weights"] == quantum["last_weights"] else "different")
+            + (
+                "the same"
+                if normal["last_weights"] == quantum["last_weights"]
+                else "different"
+            )
             + f": normal {normal['last_weights']}, quantum {quantum['last_weights']}."
         ),
     ]
@@ -207,7 +222,9 @@ def main():
 
     print("Running normal and quantum simulations in parallel...")
     if XPYQ_KEY:
-        print("(quantum branch will submit xpyq workloads, with local fallback on timeout/failure)")
+        print(
+            "(quantum branch will submit xpyq workloads, with local fallback on timeout/failure)"
+        )
     else:
         print("(XPYQ_KEY is missing, so the quantum branch will use local fallbacks)")
 
@@ -255,11 +272,11 @@ def main():
     print(f"  winner     : {report.winner}")
     print(f"  next step  : {report.recommendation}")
 
-    print(f"\n  {'-'*24} SIMULATION RESULTS {'-'*22}")
+    print(f"\n  {'-' * 24} SIMULATION RESULTS {'-' * 22}")
     print_run(normal)
     print_run(quantum)
 
-    print(f"\n  {'-'*22} MARKET INTELLIGENCE {'-'*22}")
+    print(f"\n  {'-' * 22} MARKET INTELLIGENCE {'-' * 22}")
     for ticker in by_name["normal"].data.tickers:
         print(f"  {ticker} sentiment : {report.sentiment.get(ticker, 0.0):+.2f}")
     print(f"  themes        : {', '.join(report.key_themes) or 'N/A'}")
@@ -273,13 +290,17 @@ def main():
             prefix = label if i == 0 else " " * len(label)
             print(f"{prefix} {headline[:76]}")
 
-    print(f"\n  {'-'*24} DECISION TRACE {'-'*24}")
+    print(f"\n  {'-' * 24} DECISION TRACE {'-' * 24}")
     for key, value in report.metric_deltas.items():
-        print(f"  {key}: {value:+}" if isinstance(value, (int, float)) else f"  {key}: {value}")
+        print(
+            f"  {key}: {value:+}"
+            if isinstance(value, (int, float))
+            else f"  {key}: {value}"
+        )
     for item in report.decision_trace:
         print(f"  - {item}")
 
-    print(f"\n  {'-'*26} FINAL AGENT {'-'*25}")
+    print(f"\n  {'-' * 26} FINAL AGENT {'-' * 25}")
     for line in report.rationale.split(". "):
         line = line.strip()
         if line:

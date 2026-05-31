@@ -23,17 +23,53 @@ import pandas as pd
 from contracts import MarketIntelligence, NewsArticle, NewsFeed
 
 _POSITIVE = {
-    "beat", "surge", "growth", "upgrade", "bullish", "strong", "record",
-    "raises", "rally", "soar", "profit", "gain",
+    "beat",
+    "surge",
+    "growth",
+    "upgrade",
+    "bullish",
+    "strong",
+    "record",
+    "raises",
+    "rally",
+    "soar",
+    "profit",
+    "gain",
 }
 _NEGATIVE = {
-    "miss", "decline", "cut", "downgrade", "bearish", "weak", "loss",
-    "lowers", "fall", "drop", "risk", "warn",
+    "miss",
+    "decline",
+    "cut",
+    "downgrade",
+    "bearish",
+    "weak",
+    "loss",
+    "lowers",
+    "fall",
+    "drop",
+    "risk",
+    "warn",
 }
 _STOPWORDS = {
-    "stock", "shares", "market", "company", "quarter", "fiscal",
-    "nvda", "goog", "google", "nvidia", "the", "and", "for", "with",
-    "from", "that", "this", "will", "its",
+    "stock",
+    "shares",
+    "market",
+    "company",
+    "quarter",
+    "fiscal",
+    "nvda",
+    "goog",
+    "google",
+    "nvidia",
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "that",
+    "this",
+    "will",
+    "its",
 }
 
 
@@ -101,7 +137,11 @@ def feed_to_market_intelligence(feed: NewsFeed) -> MarketIntelligence:
 
 def make_news_source(api_key: str | None = None):
     """Return ExaNewsSource when a key is available, else MockNewsSource."""
-    key = api_key if api_key is not None else os.environ.get("EXA_KEY", "")
+    key = (
+        api_key
+        if api_key is not None
+        else os.environ.get("EXA_API_KEY", os.environ.get("EXA_KEY", ""))
+    )
     if key:
         return ExaNewsSource(api_key=key)
     return MockNewsSource()
@@ -143,7 +183,7 @@ class ExaNewsSource:
 
         if cache_file.exists() and cache_file.stat().st_size > 10:
             feed = self._load(cache_file, as_of)
-            if not feed.articles:        # empty cache from a prior failed fetch
+            if not feed.articles:  # empty cache from a prior failed fetch
                 cache_file.unlink()
                 feed = None
         else:
@@ -160,11 +200,14 @@ class ExaNewsSource:
     # ------------------------------------------------------------------
 
     def _fetch_exa(self, tickers: list[str], as_of: pd.Timestamp) -> list[NewsArticle]:
-        start_date = (as_of - pd.Timedelta(days=self.lookback_days)).strftime("%Y-%m-%dT00:00:00Z")
+        start_date = (as_of - pd.Timedelta(days=self.lookback_days)).strftime(
+            "%Y-%m-%dT00:00:00Z"
+        )
         end_date = as_of.strftime("%Y-%m-%dT23:59:59Z")
         articles: list[NewsArticle] = []
         try:
             from exa_py import Exa
+
             exa = Exa(api_key=self.api_key)
             for ticker in tickers:
                 results = exa.search(
@@ -179,16 +222,18 @@ class ExaNewsSource:
                     if not title and not snippet:
                         continue
                     texts = [t for t in (title, snippet) if t]
-                    articles.append(NewsArticle(
-                        ticker=ticker,
-                        title=title or snippet[:80],
-                        snippet=snippet,
-                        url=r.url or "",
-                        published_date=_parse_published(
-                            getattr(r, "published_date", None), as_of
-                        ),
-                        sentiment_score=sentiment_score(texts),
-                    ))
+                    articles.append(
+                        NewsArticle(
+                            ticker=ticker,
+                            title=title or snippet[:80],
+                            snippet=snippet,
+                            url=r.url or "",
+                            published_date=_parse_published(
+                                getattr(r, "published_date", None), as_of
+                            ),
+                            sentiment_score=sentiment_score(texts),
+                        )
+                    )
         except Exception as e:
             print(f"[news] Exa fetch failed for {as_of.date()}: {e}", file=sys.stderr)
         return articles

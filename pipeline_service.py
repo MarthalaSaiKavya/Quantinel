@@ -4,6 +4,7 @@ pipeline_service.py — Run the Quantinel pipeline and build dashboard JSON.
 The dashboard (dashboard/dashboard.js) expects a single payload with keys:
   tickers, decision, intelligence, risk, normal, quantum, execution_logs
 """
+
 from __future__ import annotations
 
 import os
@@ -22,14 +23,16 @@ from pipeline_agent import PipelineAgent
 from run_master import PipelineResult, build_trace, run_pipeline, summarize
 
 XPYQ_KEY = os.environ.get("XPYQ_KEY", "")
-EXA_KEY = os.environ.get("EXA_KEY", "")
+EXA_KEY = os.environ.get("EXA_API_KEY", os.environ.get("EXA_KEY", ""))
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
 XPYQ_TIMEOUT = float(os.environ.get("XPYQ_TIMEOUT", "60"))
 
 _FAST = os.environ.get("QUANTINEL_API_FAST", "").lower() in {"1", "true", "yes"}
 RISK_N_PATHS = int(os.environ.get("QUANTINEL_N_PATHS", "1000" if _FAST else "10000"))
 N_DAYS = int(os.environ.get("QUANTINEL_N_DAYS", "252" if _FAST else "504"))
-REBALANCE_EVERY = int(os.environ.get("QUANTINEL_REBALANCE_EVERY", "20" if _FAST else "5"))
+REBALANCE_EVERY = int(
+    os.environ.get("QUANTINEL_REBALANCE_EVERY", "20" if _FAST else "5")
+)
 
 
 @dataclass
@@ -118,7 +121,9 @@ def _build_payload(
     logs: list[str],
 ) -> dict[str, Any]:
     tickers = list(normal_result.data.tickers)
-    winner_key = comparison.winner if comparison.winner in {"normal", "quantum"} else "normal"
+    winner_key = (
+        comparison.winner if comparison.winner in {"normal", "quantum"} else "normal"
+    )
     winner_result = quantum_result if winner_key == "quantum" else normal_result
     last = winner_result.records[-1]
 
@@ -156,11 +161,12 @@ def _build_payload(
             "scorecard": {
                 "sharpe": float(quantum_result.scorecard.sharpe),
                 "total_return": float(quantum_result.scorecard.total_return),
-                "directional_accuracy": float(quantum_result.scorecard.directional_accuracy),
+                "directional_accuracy": float(
+                    quantum_result.scorecard.directional_accuracy
+                ),
                 "equity_curve": {
                     "values": [
-                        float(v)
-                        for v in quantum_result.scorecard.equity_curve.tolist()
+                        float(v) for v in quantum_result.scorecard.equity_curve.tolist()
                     ],
                 },
             },
@@ -216,7 +222,9 @@ def _run_pipeline_impl() -> dict[str, Any]:
             return result
 
         with ThreadPoolExecutor(max_workers=2) as pool:
-            futures = [pool.submit(_run_named, job) for job in (normal_job, quantum_job)]
+            futures = [
+                pool.submit(_run_named, job) for job in (normal_job, quantum_job)
+            ]
             results = [f.result() for f in futures]
 
         by_name = {r.name: r for r in results}
@@ -245,7 +253,9 @@ def _run_pipeline_impl() -> dict[str, Any]:
         )
         _log(f"Winner: {comparison.winner}")
 
-        winner_result = quantum_result if comparison.winner == "quantum" else normal_result
+        winner_result = (
+            quantum_result if comparison.winner == "quantum" else normal_result
+        )
         winner_label = (
             "QuantumForecaster + QaoaOptimizer"
             if comparison.winner == "quantum"
