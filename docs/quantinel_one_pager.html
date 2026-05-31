@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quantinel — Institutional Agentic Quantum Trading Decision Engine</title>
+  <meta name="description" content="Quantinel: A modular backtesting pipeline comparing classical and quantum-augmented trading systems." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --yc: #FF6600;
+      --yc-light: #FFF4EB;
+      --yc-mid: #FFE0C7;
+      --yc-dark: #CC5200;
+      --black: #111111;
+      --gray-900: #1A1A1A;
+      --gray-800: #2D2D2D;
+      --gray-700: #404040;
+      --gray-600: #525252;
+      --gray-500: #737373;
+      --gray-400: #A3A3A3;
+      --gray-300: #D4D4D4;
+      --gray-200: #E5E5E5;
+      --gray-100: #F5F5F5;
+      --gray-50: #FAFAFA;
+      --white: #FFFFFF;
+      --radius: 10px;
+      --radius-lg: 14px;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box; margin: 0; padding: 0;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    html {
+      background: var(--white);
+      color: var(--black);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 40px 64px;
+    }
+
+    /* ═══════════════════════════════════
+       HEADER
+    ═══════════════════════════════════ */
+    .header {
+      padding: 56px 0 44px;
+      border-bottom: 2px solid var(--black);
+      margin-bottom: 48px;
+    }
+
+    .logo {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: var(--black);
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+
+    .logo-dot { color: var(--yc); }
+
+    .header-tagline {
+      font-size: 20px;
+      font-weight: 400;
+      color: var(--gray-600);
+      line-height: 1.5;
+      max-width: 680px;
+    }
+
+    .header-tagline strong { color: var(--black); font-weight: 600; }
+    .header-tagline em { font-style: normal; color: var(--yc-dark); font-weight: 600; }
+
+    /* ═══════════════════════════════════
+       SECTION STYLES
+    ═══════════════════════════════════ */
+    section { margin-bottom: 48px; }
+
+    .sec-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .sec-number {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--yc);
+      letter-spacing: 0.05em;
+      flex-shrink: 0;
+    }
+
+    .sec-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--black);
+    }
+
+    .sec-rule {
+      width: 100%;
+      height: 1px;
+      background: var(--gray-200);
+      margin-top: 12px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--gray-200);
+      margin: 0 0 48px;
+    }
+
+    /* ═══════════════════════════════════
+       PROBLEM + SOLUTION
+    ═══════════════════════════════════ */
+    .ps-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .ps-col-label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ps-col-label.problem { color: var(--gray-800); }
+    .ps-col-label.solution { color: var(--yc-dark); }
+
+    .ps-col-label .label-line { flex: 1; height: 1px; }
+    .ps-col-label.problem .label-line { background: var(--gray-300); }
+    .ps-col-label.solution .label-line { background: var(--yc-mid); }
+
+    .ps-card { border-radius: var(--radius-lg); padding: 20px; }
+
+    .ps-card.problem {
+      background: var(--gray-50);
+      border: 1.5px solid var(--gray-200);
+    }
+
+    .ps-card.solution {
+      background: var(--yc-light);
+      border: 1.5px solid var(--yc-mid);
+    }
+
+    .ps-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .ps-item:last-child { margin-bottom: 0; }
+
+    .ps-icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; flex-shrink: 0; margin-top: 1px;
+    }
+
+    .ps-icon.p { background: var(--gray-200); }
+    .ps-icon.s { background: var(--yc-mid); }
+
+    .ps-text-title { font-size: 13px; font-weight: 700; color: var(--black); margin-bottom: 2px; }
+    .ps-text-body { font-size: 12px; color: var(--gray-600); line-height: 1.55; }
+
+    /* ═══════════════════════════════════
+       ARCHITECTURE DIAGRAM
+    ═══════════════════════════════════ */
+    .arch-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      max-width: 760px;
+      margin: 0 auto;
+    }
+
+    .arch-node {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 36px;
+      border-radius: var(--radius);
+      text-align: center;
+      flex-direction: column;
+    }
+
+    .arch-node-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      line-height: 1.3;
+    }
+
+    .arch-node-sub {
+      font-size: 12px;
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+
+    .arch-node.data {
+      background: var(--black);
+      color: var(--white);
+    }
+    .arch-node.data .arch-node-title { color: var(--white); }
+    .arch-node.data .arch-node-sub { color: rgba(255,255,255,0.55); }
+
+    .arch-node.comparison {
+      background: var(--gray-100);
+      border: 1.5px solid var(--gray-300);
+    }
+    .arch-node.comparison .arch-node-title { color: var(--black); }
+    .arch-node.comparison .arch-node-sub { color: var(--gray-500); }
+
+    .arch-node.exa {
+      background: var(--yc-light);
+      border: 1.5px solid var(--yc-mid);
+    }
+    .arch-node.exa .arch-node-title { color: var(--yc-dark); }
+    .arch-node.exa .arch-node-sub { color: var(--yc); }
+
+    .arch-node.agent {
+      background: var(--yc);
+      color: var(--white);
+    }
+    .arch-node.agent .arch-node-title { color: var(--white); }
+    .arch-node.agent .arch-node-sub { color: rgba(255,255,255,0.7); }
+
+    .arch-node.decision {
+      background: var(--yc-light);
+      border: 2px solid var(--yc);
+    }
+    .arch-node.decision .arch-node-title { color: var(--yc-dark); }
+    .arch-node.decision .arch-node-sub { color: var(--gray-600); }
+
+    /* Connectors */
+    .v-connector {
+      width: 2px; height: 20px;
+      background: var(--gray-300);
+      position: relative;
+    }
+    .v-connector::after {
+      content: '';
+      position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%);
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid var(--gray-300);
+    }
+    .v-connector.dark { background: var(--black); }
+    .v-connector.dark::after { border-top-color: var(--black); }
+    .v-connector.orange { background: var(--yc); }
+    .v-connector.orange::after { border-top-color: var(--yc); }
+
+    .fork-label {
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--gray-400); padding: 8px 0;
+    }
+
+    .fork-branches {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 0; width: 100%;
+    }
+
+    .branch {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 0;
+      padding: 0 6px;
+    }
+
+    .branch-header {
+      padding: 10px 20px; border-radius: 8px;
+      font-size: 13px; font-weight: 800;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      width: 100%; text-align: center;
+    }
+
+    .branch-header.normal {
+      background: var(--gray-100);
+      border: 1.5px solid var(--gray-300);
+      color: var(--gray-800);
+    }
+
+    .branch-header.quantum {
+      background: var(--yc-light);
+      border: 1.5px solid var(--yc);
+      color: var(--yc-dark);
+    }
+
+    .step-box {
+      width: 100%; border-radius: 8px;
+      padding: 10px 16px; text-align: center;
+    }
+
+    .step-box.normal {
+      background: var(--white);
+      border: 1.5px solid var(--gray-200);
+    }
+
+    .step-box.quantum {
+      background: var(--white);
+      border: 1.5px solid var(--yc-mid);
+    }
+
+    .step-name {
+      font-size: 14px; font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .step-name.normal { color: var(--gray-800); }
+    .step-name.quantum { color: var(--yc-dark); }
+
+    .step-desc {
+      font-size: 11px; color: var(--gray-500);
+      line-height: 1.3; margin-top: 2px;
+    }
+
+    .step-arrow {
+      width: 1px; height: 10px;
+      background: var(--gray-300);
+      align-self: center;
+    }
+
+    .branch-divider {
+      width: 1px;
+      background: linear-gradient(to bottom, transparent, var(--gray-200), transparent);
+      margin: 0 4px;
+    }
+
+    .merge-row {
+      display: flex; align-items: center; width: 100%;
+    }
+
+    .merge-line { flex: 1; height: 2px; }
+    .merge-line.left { background: linear-gradient(to right, transparent 10%, var(--gray-300)); }
+    .merge-line.right { background: linear-gradient(to left, transparent 10%, var(--gray-300)); }
+
+    .merge-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--yc); flex-shrink: 0;
+      box-shadow: 0 0 0 3px var(--yc-light);
+    }
+
+    /* ═══════════════════════════════════
+       FEATURES GRID
+    ═══════════════════════════════════ */
+    .feat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .feat-card {
+      border: 1.5px solid var(--gray-200);
+      border-radius: var(--radius-lg);
+      padding: 20px; background: var(--white);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .feat-card:hover {
+      border-color: var(--yc-mid);
+      box-shadow: 0 4px 20px rgba(255,102,0,0.08);
+    }
+
+    .feat-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; margin-bottom: 12px;
+    }
+
+    .feat-title { font-size: 13px; font-weight: 700; color: var(--black); margin-bottom: 6px; }
+    .feat-body { font-size: 11.5px; color: var(--gray-600); line-height: 1.55; }
+
+    .feat-tag {
+      display: inline-block; margin-top: 10px;
+      padding: 3px 10px; border-radius: 100px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+    }
+
+    .feat-tag.orange { background: var(--yc-light); color: var(--yc-dark); border: 1px solid var(--yc-mid); }
+    .feat-tag.gray { background: var(--gray-100); color: var(--gray-700); border: 1px solid var(--gray-200); }
+
+    /* ═══════════════════════════════════
+       VISION / ROADMAP
+    ═══════════════════════════════════ */
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px; position: relative;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute; top: 18px;
+      left: calc(16.66% + 8px); right: calc(16.66% + 8px);
+      height: 2px; background: var(--gray-200); z-index: 0;
+    }
+
+    .phase {
+      display: flex; flex-direction: column;
+      align-items: center; position: relative; z-index: 1;
+    }
+
+    .phase-dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 2px solid var(--gray-300);
+      background: var(--white); margin-bottom: 14px;
+    }
+
+    .phase:first-child .phase-dot {
+      background: var(--yc); border-color: var(--yc);
+      box-shadow: 0 0 0 3px var(--yc-light);
+    }
+
+    .phase-badge {
+      padding: 3px 14px; border-radius: 100px;
+      font-size: 10px; font-weight: 800;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .phase-badge.now { background: var(--yc); color: var(--white); }
+    .phase-badge.next { background: var(--gray-100); color: var(--gray-700); border: 1.5px solid var(--gray-300); }
+    .phase-badge.vision { background: var(--gray-100); color: var(--gray-500); border: 1.5px solid var(--gray-200); }
+
+    .phase-box {
+      background: var(--white);
+      border: 1.5px solid var(--gray-200);
+      border-radius: var(--radius-lg);
+      padding: 18px; width: 100%;
+    }
+
+    .phase:first-child .phase-box {
+      border-color: var(--yc-mid);
+      background: var(--yc-light);
+    }
+
+    .phase-title { font-size: 14px; font-weight: 700; color: var(--black); margin-bottom: 10px; }
+
+    .phase-list { list-style: none; }
+
+    .phase-list li {
+      font-size: 11.5px; color: var(--gray-600);
+      padding: 5px 0; border-bottom: 1px solid var(--gray-100);
+      display: flex; align-items: baseline; gap: 8px; line-height: 1.4;
+    }
+
+    .phase-list li:last-child { border-bottom: none; }
+
+    .phase-list li::before {
+      content: '→'; color: var(--yc);
+      font-weight: 700; font-size: 11px; flex-shrink: 0;
+    }
+
+    .cta-box {
+      margin-top: 28px;
+      border: 2px solid var(--black);
+      border-radius: var(--radius-lg);
+      padding: 22px 32px; text-align: center;
+      background: var(--white);
+    }
+
+    .cta-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 16px; font-weight: 700;
+      color: var(--black); margin-bottom: 6px;
+    }
+
+    .cta-sub { font-size: 13px; color: var(--gray-500); }
+    .cta-sub strong { color: var(--yc-dark); font-weight: 600; }
+
+    /* ═══════════════════════════════════
+       FOOTER
+    ═══════════════════════════════════ */
+    footer {
+      border-top: 2px solid var(--black);
+      padding-top: 20px; margin-top: 48px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+
+    .footer-brand {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px; font-weight: 800;
+      color: var(--black); letter-spacing: -0.02em;
+    }
+
+    .footer-brand span { color: var(--yc); }
+    .footer-note { font-size: 11px; color: var(--gray-400); }
+    .footer-links { display: flex; gap: 16px; }
+
+    .footer-link {
+      font-size: 12px; font-weight: 600;
+      color: var(--yc-dark); text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    .footer-link:hover { color: var(--yc); }
+
+    @media print {
+      body { padding: 16px 32px 32px; }
+      .feat-card:hover { box-shadow: none; border-color: var(--gray-200); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════
+     HEADER
+═══════════════════════════════════ -->
+<header class="header">
+  <div class="logo">Quantinel<span class="logo-dot">.</span></div>
+  <p class="header-tagline">
+    <strong>Institutional Agentic Quantum Trading Decision Engine</strong> —
+    a modular backtesting framework benchmarking <em>classical Markowitz</em> against
+    <em>quantum-augmented forecasting &amp; optimization</em>, with an AI master agent delivering the final auditable verdict.
+  </p>
+</header>
+
+<!-- ═══════════════════════════════════
+     SECTION 1 — PROBLEM + SOLUTION
+═══════════════════════════════════ -->
+<section id="problem-solution">
+  <div class="sec-header">
+    <span class="sec-number">01</span>
+    <h2 class="sec-title">The Problem &amp; Our Solution</h2>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="ps-grid" style="margin-top:20px;">
+    <div>
+      <div class="ps-col-label problem">
+        ⚠ Problem
+        <span class="label-line"></span>
+      </div>
+      <div class="ps-card problem">
+        <div class="ps-item">
+          <div class="ps-icon p">📉</div>
+          <div>
+            <div class="ps-text-title">Classical Optimization Hits Walls</div>
+            <div class="ps-text-body">Markowitz mean-variance is convex but brittle — covariance estimates degrade under regime shifts and fat tails.</div>
+          </div>
+        </div>
+        <div class="ps-item">
+          <div class="ps-icon p">🔒</div>
+          <div>
+            <div class="ps-text-title">Quantum Claims Are Unverified</div>
+            <div class="ps-text-body">Quantum trading strategies are hyped without rigorous, fair comparisons on identical data and risk pipelines.</div>
+          </div>
+        </div>
+        <div class="ps-item">
+          <div class="ps-icon p">🌐</div>
+          <div>
+            <div class="ps-text-title">No Unified Decision Layer</div>
+            <div class="ps-text-body">Trading desks lack a single explainable output fusing quant scores, market news, and algorithmic recommendations.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="ps-col-label solution">
+        ✦ Solution
+        <span class="label-line"></span>
+      </div>
+      <div class="ps-card solution">
+        <div class="ps-item">
+          <div class="ps-icon s">⚛️</div>
+          <div>
+            <div class="ps-text-title">Fair Dual-Engine Benchmark</div>
+            <div class="ps-text-body">Normal &amp; Quantum pipelines share the same data, risk, executor, and scorer — isolating forecast &amp; optimizer as the only variable.</div>
+          </div>
+        </div>
+        <div class="ps-item">
+          <div class="ps-icon s">🧠</div>
+          <div>
+            <div class="ps-text-title">Remote Quantum Compute via XpyQ</div>
+            <div class="ps-text-body">SVD factor extraction and QUBO-style portfolio optimization offloaded to XpyQ with automatic fallback on timeout.</div>
+          </div>
+        </div>
+        <div class="ps-item">
+          <div class="ps-icon s">🤖</div>
+          <div>
+            <div class="ps-text-title">AI-Powered Final Verdict</div>
+            <div class="ps-text-body">MasterAgent fuses Exa real-time sentiment with quantitative scores, delivers an auditable, plain-English recommendation.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════
+     SECTION 2 — ARCHITECTURE
+═══════════════════════════════════ -->
+<section id="architecture">
+  <div class="sec-header">
+    <span class="sec-number">02</span>
+    <h2 class="sec-title">System Architecture</h2>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="arch-container" style="margin-top:28px;">
+
+    <!-- Data Source -->
+    <div class="arch-node data">
+      <div class="arch-node-title">Portfolio Data</div>
+      <div class="arch-node-sub">NVDA / GOOG OHLCV</div>
+    </div>
+
+    <div class="v-connector dark"></div>
+
+    <div class="fork-label">▼ RUN IN PARALLEL ▼</div>
+
+    <div class="merge-row" style="margin-bottom:4px;">
+      <div class="merge-line left"></div>
+      <div style="width:10px;"></div>
+      <div class="merge-line right"></div>
+    </div>
+
+    <!-- Two branches -->
+    <div class="fork-branches">
+
+      <!-- NORMAL BRANCH -->
+      <div class="branch">
+        <div class="branch-header normal">Normal Pipeline</div>
+        <div class="step-arrow"></div>
+        <div class="step-box normal">
+          <div class="step-name normal">MomentumForecaster</div>
+          <div class="step-desc">Recent return signal</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step-box normal">
+          <div class="step-name normal">SampleCovRisk</div>
+          <div class="step-desc">Covariance / VaR / CVaR</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step-box normal">
+          <div class="step-name normal">MeanVarianceOptimizer</div>
+          <div class="step-desc">Classic Markowitz sizing</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step-box normal">
+          <div class="step-name normal">PaperExecutor</div>
+          <div class="step-desc">Simulated trade execution</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step-box normal">
+          <div class="step-name normal">BacktestScorer</div>
+          <div class="step-desc">Return, Sharpe, IC, accuracy</div>
+        </div>
+      </div>
+
+      <div class="branch-divider"></div>
+
+      <!-- QUANTUM BRANCH -->
+      <div class="branch">
+        <div class="branch-header quantum">Quantum Pipeline</div>
+        <div class="step-arrow"></div>
+        <div class="step-box quantum">
+          <div class="step-name quantum">QuantumForecaster</div>
+          <div class="step-desc">XpyQ SVD factor signal</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step-box quantum">
+          <div class="step-name quantum">SampleCovRisk</div>
+          <div class="step-desc">Covariance / VaR / CVaR</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step-box quantum">
+          <div class="step-name quantum">QAOA Optimizer</div>
+          <div class="step-desc">XpyQ eig / QUBO path</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step-box quantum">
+          <div class="step-name quantum">PaperExecutor</div>
+          <div class="step-desc">Simulated trade execution</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step-box quantum">
+          <div class="step-name quantum">BacktestScorer</div>
+          <div class="step-desc">Return, Sharpe, IC, accuracy</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Merge -->
+    <div class="merge-row" style="margin-top:8px;">
+      <div class="merge-line left"></div>
+      <div class="merge-dot"></div>
+      <div class="merge-line right"></div>
+    </div>
+
+    <div class="v-connector"></div>
+    <div class="arch-node comparison">
+      <div class="arch-node-title">Comparison Summary</div>
+      <div class="arch-node-sub">Return gap · Sharpe gap · Accuracy delta</div>
+    </div>
+
+    <div class="v-connector"></div>
+    <div class="arch-node exa">
+      <div class="arch-node-title">Exa Headlines + Sentiment</div>
+      <div class="arch-node-sub">Real-time market intelligence</div>
+    </div>
+
+    <div class="v-connector orange"></div>
+    <div class="arch-node agent">
+      <div class="arch-node-title">OpenRouter MasterAgent</div>
+      <div class="arch-node-sub">LLM-powered reasoning engine</div>
+    </div>
+
+    <div class="v-connector orange"></div>
+    <div class="arch-node decision">
+      <div class="arch-node-title">Plain-English Final Decision</div>
+      <div class="arch-node-sub">Winner · Rationale · Decision Trace</div>
+    </div>
+
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════
+     SECTION 3 — KEY FEATURES
+═══════════════════════════════════ -->
+<section id="features">
+  <div class="sec-header">
+    <span class="sec-number">03</span>
+    <h2 class="sec-title">Key Capabilities</h2>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="feat-grid" style="margin-top:20px;">
+    <div class="feat-card">
+      <div class="feat-icon" style="background:var(--yc-light);">⚛️</div>
+      <div class="feat-title">Quantum SVD Extraction</div>
+      <div class="feat-body">QuantumForecaster builds a returns matrix and offloads SVD decomposition to XpyQ — isolating the strongest hidden market factor for alpha.</div>
+      <span class="feat-tag orange">XpyQ Remote Compute</span>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon" style="background:var(--gray-100);">⚖️</div>
+      <div class="feat-title">Fair Apples-to-Apples</div>
+      <div class="feat-body">Risk, execution, and scoring layers are identical across both pipelines. Only forecaster and optimizer differ — a scientifically valid comparison.</div>
+      <span class="feat-tag gray">Controlled Experiment</span>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon" style="background:var(--yc-light);">🛡️</div>
+      <div class="feat-title">Automatic Fallback</div>
+      <div class="feat-body">If XpyQ times out, QuantumForecaster falls back to Momentum and QAOA Optimizer falls back to DiscreteQUBO — always producing a result.</div>
+      <span class="feat-tag orange">Resilient Design</span>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon" style="background:var(--yc-light);">🔍</div>
+      <div class="feat-title">Market Intelligence</div>
+      <div class="feat-body">Exa scrapes live headlines and extracts sentiment themes, enriching the MasterAgent's comparison beyond pure quantitative scores.</div>
+      <span class="feat-tag orange">Exa API</span>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon" style="background:var(--gray-100);">📋</div>
+      <div class="feat-title">Auditable Decision Trace</div>
+      <div class="feat-body">Every recommendation outputs return gaps, Sharpe gaps, directional accuracy, risk breach diffs, and XpyQ completion counts — never a black box.</div>
+      <span class="feat-tag gray">Full Transparency</span>
+    </div>
+    <div class="feat-card">
+      <div class="feat-icon" style="background:var(--yc-light);">🤖</div>
+      <div class="feat-title">LLM Master Agent</div>
+      <div class="feat-body">MasterAgent fuses Exa sentiment, risk metrics, and challenger comparison into a winner (baseline / challenger / tie) with a plain-English rationale and auditable trace.</div>
+      <span class="feat-tag orange">OpenRouter LLM</span>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ═══════════════════════════════════
+     SECTION 4 — FUTURE VISION
+═══════════════════════════════════ -->
+<section id="vision">
+  <div class="sec-header">
+    <span class="sec-number">04</span>
+    <h2 class="sec-title">Roadmap</h2>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="timeline" style="margin-top:24px;">
+    <div class="phase">
+      <div class="phase-dot"></div>
+      <div class="phase-badge now">Now</div>
+      <div class="phase-box">
+        <div class="phase-title">Foundation</div>
+        <ul class="phase-list">
+          <li>NVDA / GOOG mock OHLCV data</li>
+          <li>Dual-engine backtester</li>
+          <li>XpyQ SVD + QUBO optimization</li>
+          <li>Exa + OpenRouter AI agent</li>
+          <li>88-point weekly rebalance loop</li>
+        </ul>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-dot"></div>
+      <div class="phase-badge next">Next</div>
+      <div class="phase-box">
+        <div class="phase-title">Expansion</div>
+        <ul class="phase-list">
+          <li>Live market data feeds</li>
+          <li>Multi-asset universe (S&amp;P 500)</li>
+          <li>Deeper quantum circuit design</li>
+          <li>Risk-adjusted alpha tracking</li>
+          <li>Portfolio constraint tuning</li>
+        </ul>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="phase-dot"></div>
+      <div class="phase-badge vision">Vision</div>
+      <div class="phase-box">
+        <div class="phase-title">Scale</div>
+        <ul class="phase-list">
+          <li>Real hardware QPU execution</li>
+          <li>Institutional-grade backtests</li>
+          <li>Multi-agent hedge fund layer</li>
+          <li>Explainable AI audit trail</li>
+          <li>Open research publication</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="cta-box">
+    <div class="cta-title">Agentic quantum risk decisions.</div>
+    <div class="cta-sub">Baseline and challenger engines on the same market, risk models, and live news. <strong>Every number in the open. Every decision auditable.</strong></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════
+     FOOTER
+═══════════════════════════════════ -->
+<footer>
+  <div class="footer-brand">Quantinel<span>.</span></div>
+
+  <div class="footer-links">
+    <a class="footer-link" href="https://github.com/MarthalaSaiKavya/Quantinel" target="_blank">GitHub →</a>
+  </div>
+</footer>
+
+</body>
+</html>
