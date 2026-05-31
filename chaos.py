@@ -1,5 +1,5 @@
 """
-LAYER 2.5 · CHAOS ENGINE  (owner: GT (10780))
+LAYER 2.5 — CHAOS ENGINE  (owner: GT (10780))
 
 Wildcard / tail-event detector that fuses quantum-encoded market signals
 with world-news sentiment to estimate the probability of an adverse
@@ -7,10 +7,11 @@ with world-news sentiment to estimate the probability of an adverse
 
 Pipeline integration example (run_baseline.py)::
 
-    from chaos import ChaosEngine, MockNewsSource
+    from chaos import ChaosEngine
+    from news import MockNewsSource, ExaNewsSource
 
-    engine = ChaosEngine()                           # XPYQ_KEY read from env
-    news   = MockNewsSource().fetch(as_of=as_of)     # swap for RealNewsSource later
+    engine = ChaosEngine()                                        # XPYQ_KEY read from env
+    news   = MockNewsSource().fetch(tickers, as_of=as_of)         # swap for ExaNewsSource
     signal = engine.evaluate(data, news, as_of=as_of)
     print(signal.reasoning)                          # plain-English recommendation
 
@@ -35,82 +36,9 @@ import time
 import numpy as np
 import pandas as pd
 
-from contracts import ChaosSignal, Forecast, MarketData, NewsItem, TargetPortfolio
+from contracts import ChaosSignal, Forecast, MarketData, NewsFeed, TargetPortfolio
 
 _XPYQ_BASE = "https://xpyq-lib-production.up.railway.app"
-
-
-# ============================================================================
-# NEWS SOURCES
-# ============================================================================
-
-
-class MockNewsSource:
-    """
-    Synthetic news feed for development / backtesting.
-
-    Generates plausible sentiment scores seeded from market returns so that
-    bad market days correlate loosely with negative news — which lets the
-    ChaosEngine's training labels and news features stay coherent even without
-    a live news API.
-
-    To go live: write a ``RealNewsSource`` with the same ``fetch()`` signature
-    that calls NewsAPI / Bloomberg / Refinitiv and returns a list[NewsItem].
-    """
-
-    def __init__(self, seed: int = 42, noise: float = 0.3) -> None:
-        self.seed = seed
-        self.noise = noise
-
-    def fetch(
-        self,
-        as_of,
-        n: int = 30,
-        lookback_days: int = 5,
-    ) -> list[NewsItem]:
-        """
-        Return ``n`` synthetic NewsItems from the ``lookback_days`` window
-        ending at ``as_of``.
-
-        Parameters
-        ----------
-        as_of        : date-like — the 'current' date
-        n            : number of headlines to generate
-        lookback_days: how many calendar days back to spread headlines over
-        """
-        rng = np.random.default_rng(
-            self.seed + int(pd.Timestamp(as_of).timestamp() / 86400)
-        )
-        end = pd.Timestamp(as_of)
-        start = end - pd.Timedelta(days=lookback_days)
-        timestamps = pd.to_datetime(
-            rng.uniform(start.value, end.value, n).astype("int64")
-        )
-
-        templates = [
-            ("Fed signals further rate {action}", lambda s: s),
-            ("Tech sector {direction} amid {reason}", lambda s: s),
-            ("Global markets {move} on geopolitical {event}", lambda s: s),
-            ("Analysts {view} outlook for equities", lambda s: s),
-            ("Inflation data {surprise} expectations", lambda s: s),
-        ]
-        actions_pos = ["cuts", "easing", "pause", "stability"]
-        actions_neg = ["hikes", "tightening", "uncertainty", "volatility"]
-
-        items: list[NewsItem] = []
-        for i, ts in enumerate(sorted(timestamps)):
-            sentiment = float(np.clip(rng.normal(0.0, 0.4) + rng.normal(0.0, self.noise), -1.0, 1.0))
-            word = rng.choice(actions_pos if sentiment > 0 else actions_neg)
-            headline = f"Market update {i + 1}: {word} reported as of {ts.date()}"
-            items.append(
-                NewsItem(
-                    timestamp=ts,
-                    headline=headline,
-                    sentiment_score=sentiment,
-                    source="MockNewsSource",
-                )
-            )
-        return items
 
 
 # ============================================================================
@@ -374,11 +302,11 @@ print(json.dumps({{
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _aggregate_sentiment(news: list[NewsItem]) -> float:
-        """Return mean sentiment score; 0.0 (neutral) if no items provided."""
-        if not news:
+    def _aggregate_sentiment(news: NewsFeed) -> float:
+        """Return mean sentiment score across all articles; 0.0 if none."""
+        if not news.articles:
             return 0.0
-        return float(np.mean([item.sentiment_score for item in news]))
+        return float(np.mean([a.sentiment_score for a in news.articles]))
 
     @staticmethod
     def _news_multiplier(avg_sentiment: float) -> float:
@@ -445,7 +373,7 @@ print(json.dumps({{
     def evaluate(
         self,
         data: MarketData,
-        news: list[NewsItem],
+        news: NewsFeed,
         as_of,
     ) -> ChaosSignal:
         """
@@ -454,8 +382,7 @@ print(json.dumps({{
         Parameters
         ----------
         data   : point-in-time ``MarketData`` (no look-ahead)
-        news   : recent ``NewsItem`` list — use ``MockNewsSource.fetch()`` or a
-                 real news source with the same interface
+        news   : ``NewsFeed`` from ``MockNewsSource`` or ``ExaNewsSource``
         as_of  : the 'current' timestamp
         """
         returns = data.returns()

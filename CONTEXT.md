@@ -11,6 +11,7 @@ glossary, not a spec. No implementation details live here.
 |-------|------|----------------|
 | 1 | Data | Fetch price bars and news articles. Produce `MarketData` and `NewsFeed`. |
 | 2 | Forecast | Predict future returns from price history. Produce `Forecast`. |
+| 2.5 | Chaos Engine | Detect tail-risk events by fusing market features with news sentiment. Produce `ChaosSignal`. |
 | 3 | Risk | Estimate risk from prices, news, and the forecast. Produce `RiskModel`. |
 | 4 | Pick & Size | Convert forecast and risk into target weights. Produce `TargetPortfolio`. |
 | 5 | Execute | Turn target weights into fills. Produce `ExecutionResult`. |
@@ -19,6 +20,27 @@ glossary, not a spec. No implementation details live here.
 ---
 
 ## Contracts (data that flows between layers)
+
+### ChaosSignal
+The output of the Chaos Engine (Layer 2.5). Contains:
+- `crash_probability`: float in [0, 1] — blended estimate of an adverse tail event.
+- `event_label`: one of `normal`, `elevated_risk`, or `market_crash`.
+- `confidence`: float in [0, 1] — how far the probability estimate is from 0.5.
+- `ticker_adjustments`: per-ticker weight multipliers applied by `adjust_portfolio()`.
+- `reasoning`: plain-English explanation of what signals drove the estimate.
+
+Produced by Layer 2.5. Consumed optionally by Forecast (to dampen/flip signals) and
+by the Optimizer (to scale or short positions).
+
+### Crash Probability
+A float in [0, 1] output by the Chaos Engine representing the estimated likelihood
+of an adverse tail event (crash, liquidity crisis, sector collapse) within the
+forecast horizon. Above 0.65 triggers a CRASH ALERT; above 0.40 triggers CAUTION.
+
+### Tail Event
+An adverse market move that exceeds the crash threshold (default: cumulative return
+below −4 % over 5 days). The Chaos Engine labels historical windows as tail events
+to train its classifier.
 
 ### MarketData
 OHLCV bars per ticker, with a DatetimeIndex. Produced by Layer 1. Consumed by
@@ -90,6 +112,10 @@ per-step risk data stored during the backtest.
 ## Relationships
 
 ```
+NewsFeed ──► Chaos Engine (Layer 2.5) ── news sentiment boost
+MarketData ──► Chaos Engine (Layer 2.5) ── market feature extraction
+ChaosSignal ──► Forecast (Layer 2) ── optional dampen / flip
+             ──► Optimizer (Layer 4) ── optional position scaling / shorting
 NewsFeed ──► Risk (Layer 3) ── Markov regime transitions
 MarketData ──► Forecast (Layer 2) ──► Risk (Layer 3)
                                     ──► Optimizer (Layer 4)
@@ -101,6 +127,9 @@ ExecutionResult ──► Score (Layer 6)
 ```
 
 - Forecast is **pure price-history**. It does not consume news.
+- The Chaos Engine consumes **both prices and news** independently of the Risk layer.
+  It runs after the Forecast and can adjust both the `Forecast` and `TargetPortfolio`
+  before they reach the Optimizer and Executor.
 - Risk consumes **both prices and news**. News only affects the Markov
   regime-switching sub-agent; GBM and bootstrap are price-only.
 - The Optimizer uses **disagreement** from the RiskModel to shrink position sizes.

@@ -128,6 +128,7 @@ set -a; source .env; set +a; .venv/bin/python run_quantum.py
 | Data | `data.py` | `MockDataSource` | same | `MarketData` |
 | News | `news.py` | `MockNewsSource` during backtest | same | `NewsFeed` |
 | Forecast | `forecast.py` | `MomentumForecaster` | `QuantumForecaster` | `Forecast` |
+| Chaos Engine | `chaos.py` | `ChaosEngine` (optional) | same | `ChaosSignal` |
 | Risk | `risk.py` | `SampleCovRisk` | same | `RiskModel` |
 | Optimize | `optimize.py` | `MeanVarianceOptimizer` | `QaoaOptimizer` | `TargetPortfolio` |
 | Execute | `execute.py` | `PaperExecutor` | same | `ExecutionResult` |
@@ -137,6 +138,53 @@ set -a; source .env; set +a; .venv/bin/python run_quantum.py
 
 The layer boundaries are defined in `contracts.py`. Each branch must return the
 same contract objects, which is what makes the comparison fair.
+
+## Chaos Engine
+
+`ChaosEngine` sits between the Forecast and Risk layers (Layer 2.5). It is an
+optional wildcard detector that estimates the probability of an adverse tail event
+— a crash, liquidity crisis, or sector collapse — by combining two independent
+signal sources:
+
+1. **Market features** derived from `MarketData`: volatility regime, 5-day momentum,
+   60-day drawdown, and a vol-spike ratio.
+2. **News sentiment** aggregated from the `NewsFeed`: negative headlines boost
+   the crash-probability estimate; positive headlines dampen it.
+
+### How the quantum classification works
+
+The engine labels historical windows as crash (1) or normal (0) based on whether
+the portfolio's cumulative return over the next 5 days fell below −4 %. It then:
+
+1. Normalises the feature matrix and computes the covariance matrix of crash-labelled
+   samples.
+2. Submits that covariance matrix to xpyq's `linalg.eig` endpoint — the same
+   hardware used by `QaoaOptimizer`.
+3. Uses the returned eigenvectors as principal crash directions.
+4. Projects the current feature vector and both cluster centroids (crash vs normal)
+   into eigen-space and returns `dist_normal / (dist_crash + dist_normal)` as
+   P(crash). A point geometrically close to the crash centroid yields a high
+   probability.
+5. Adjusts that probability up or down using a news-sentiment multiplier.
+
+Falls back to a classical centroid-distance calculation when `XPYQ_KEY` is not set
+or the API is unreachable.
+
+### How the signal is used
+
+| `crash_probability` | `event_label` | Effect on forecast | Effect on portfolio |
+|---|---|---|---|
+| ≥ 0.65 | `market_crash` | direction flipped to −1, returns scaled by −p | weights multiplied by −0.80 (strong short) |
+| 0.40 – 0.65 | `elevated_risk` | returns dampened by (1 − p) | weights multiplied by 0.40 (halved) |
+| < 0.40 | `normal` | unchanged | unchanged |
+
+### Fallback and traceability
+
+`ChaosEngine` is designed to degrade gracefully:
+
+- If xpyq is unavailable, the classical centroid-distance fallback runs locally.
+- If there is insufficient history (< 25 labelled samples) or only one class in the
+  training set, a sentiment-only estimate is returned with `confidence=0.0`.
 
 ## Normal branch
 
@@ -261,6 +309,7 @@ numbers are computed in code first, then the agent explains them.
 | `run_baseline.py` | Normal-only baseline run. |
 | `run_quantum.py` | Older three-way baseline/quantum/full-quantum comparison. |
 | `contracts.py` | Shared dataclasses and Protocol interfaces. |
+| `chaos.py` | Chaos Engine — tail-risk detector using xpyq eigendecomposition and news sentiment. |
 | `forecast.py` | Momentum and xpyq SVD forecast logic. |
 | `optimize.py` | Markowitz, discrete QUBO, and xpyq eig optimizer logic. |
 | `risk.py` | Covariance + multi-agent VaR/CVaR risk simulation. |
