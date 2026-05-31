@@ -10,8 +10,26 @@ export default function Home() {
 
   const fetchData = async () => {
     try {
-      const r = await fetch("/api/pipeline/refresh");
-      setData(await r.json());
+      const ref = await fetch("/api/pipeline/refresh");
+      const s = await ref.json();
+      if (s.status === "started" || s.status === "already_running") {
+        const poll = setInterval(async () => {
+          try {
+            const r = await fetch("/api/pipeline");
+            const d = await r.json();
+            if (d.tickers) {
+              setData(d);
+              setLoading(false);
+              clearInterval(poll);
+            }
+          } catch {}
+        }, 2000);
+        setTimeout(() => {
+          clearInterval(poll);
+          setLoading(false);
+        }, 120000);
+        return;
+      }
     } catch {}
     setLoading(false);
   };

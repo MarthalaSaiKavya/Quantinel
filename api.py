@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -53,11 +53,12 @@ def pipeline():
 
 
 @app.get("/api/pipeline/refresh")
-def pipeline_refresh():
-    try:
-        return get_pipeline_payload(refresh=True)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+def pipeline_refresh(background_tasks: BackgroundTasks):
+    status = pipeline_status()
+    if status["running"]:
+        return {"status": "already_running", "ready": False}
+    background_tasks.add_task(get_pipeline_payload, refresh=True)
+    return {"status": "started", "ready": False}
 
 
 app.mount("/", StaticFiles(directory=DASHBOARD, html=True), name="dashboard-static")
