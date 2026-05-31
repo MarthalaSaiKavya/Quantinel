@@ -189,6 +189,17 @@ class Scorecard:
     equity_curve: pd.Series
 
 
+@dataclass(frozen=True)
+class MarketIntelligence:
+    """OUTPUT of MarketIntelligenceAgent.  INPUT to MasterAgent."""
+
+    as_of: pd.Timestamp
+    headlines: dict[str, list[str]]   # ticker -> recent headlines
+    sentiment: dict[str, float]        # ticker -> score in [-1.0, 1.0]
+    key_themes: list[str]              # top market-wide themes across all tickers
+    urls: dict[str, list[str]]         # ticker -> source URLs
+
+
 # ============================================================================
 # LAYER INTERFACES  (each teammate owns exactly one of these)
 # ============================================================================
