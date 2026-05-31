@@ -12,7 +12,7 @@ glossary, not a spec. No implementation details live here.
 | 1 | Data | Fetch price bars and news articles. Produce `MarketData` and `NewsFeed`. |
 | 2 | Forecast | Predict future returns from price history. Produce `Forecast`. |
 | 2.5 | Chaos Engine | Detect tail-risk events by fusing market features with news sentiment. Produce `ChaosSignal`. |
-| 2.6 | Crystal Ball | Fuse a short-horizon `Forecast` with a `ChaosSignal` to produce a 1-year scenario prediction. Produce `CrystalBallPrediction`. |
+| 2.6 | Crystal Ball | Fuse a short-horizon `Forecast` with a `ChaosSignal` to produce a 1- or 2-year scenario prediction enriched with IFTF futures thinking signals, backcasting, and Two Curves pattern analysis. Produce `CrystalBallPrediction`. |
 | 3 | Risk | Estimate risk from prices, news, and the forecast. Produce `RiskModel`. |
 | 4 | Pick & Size | Convert forecast and risk into target weights. Produce `TargetPortfolio`. |
 | 5 | Execute | Turn target weights into fills. Produce `ExecutionResult`. |
@@ -35,7 +35,7 @@ by the Optimizer (to scale or short positions).
 
 ### CrystalBallPrediction
 The output of Crystal Ball (Layer 2.6). Contains:
-- `base_returns`: per-ticker compounded expected return over ~1 trading year (252 days).
+- `base_returns`: per-ticker compounded expected return over the forecast horizon (default 252 days ≈ 1 year).
 - `bull_returns`: optimistic scenario — `base + 1.5 × annual_vol`.
 - `bear_returns`: pessimistic scenario — `base − 1.5 × annual_vol`.
 - `crash_adjusted_returns`: base returns scaled by the `ChaosSignal.ticker_adjustments` multipliers.
@@ -43,7 +43,10 @@ The output of Crystal Ball (Layer 2.6). Contains:
 - `crash_probability`: forwarded from the `ChaosSignal`.
 - `dominant_factor_var`: leading eigenvalue × 252 — the annualised variance of the strongest market-wide factor.
 - `confidence`: per-ticker, inherited from the short-horizon `Forecast`.
-- `reasoning`: plain-English scenario summary combining forecast signals, crash probability, and scenario bounds.
+- `reasoning`: plain-English narrative structured around three IFTF futures thinking principles:
+  - **Principle 2 — Focus on signals**: per-ticker anomalous deviations (volatility surges, momentum breaks, counter-trend bounces, drawdown warnings).
+  - **Principle 3 — Look back to see forward**: backcasting across historical vol-regime analogues to surface recurrent patterns and median forward return.
+  - **Principle 4 — Uncover patterns**: Two Curves classification per ticker (`first_curve_ascending`, `first_curve_peak`, `first_curve_declining`, `second_curve_emerging`, `transition`, `indeterminate`).
 
 Produced by Layer 2.6. Intended for external reporting and decision support; not consumed by downstream pipeline layers.
 

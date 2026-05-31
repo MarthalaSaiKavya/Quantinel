@@ -260,6 +260,9 @@ class CrystalBall:
         timeout:       Max seconds per xpyq job before classical fallback (default 20 s).
     """
 
+    ONE_YEAR_DAYS: int = 252
+    TWO_YEAR_DAYS: int = 504
+
     def __init__(
         self,
         forecaster,
@@ -403,8 +406,182 @@ print(json.dumps({{
         return annual_vol, dominant
 
     # ------------------------------------------------------------------
+    # Futures Thinking Principle 2: Focus on signals
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _detect_signals(rets: pd.DataFrame, tickers: list[str]) -> dict[str, list[str]]:
+        """
+        IFTF Principle 2 — Focus on signals.
+
+        Scan each ticker for anomalous deviations from its own baseline —
+        marginal developments that may indicate an emerging discontinuity.
+        These are not predictions; they are signals that warrant attention.
+
+        Signals detected
+        ----------------
+        - Volatility surge   : 5d vol > 1.8× the 60d vol baseline.
+        - Momentum break     : long trend positive but short momentum turning negative.
+        - Counter-trend bounce: long trend negative but short momentum turning positive.
+        - Drawdown warning   : price has fallen > 8 % from its 60d peak.
+        """
+        signals: dict[str, list[str]] = {t: [] for t in tickers}
+        for t in tickers:
+            r = rets[t].dropna()
+            if len(r) < 20:
+                continue
+
+            vol_5  = float(r.tail(5).std())
+            vol_60 = float(r.tail(min(60, len(r))).std())
+            if vol_60 > 0 and vol_5 / vol_60 > 1.8:
+                signals[t].append(
+                    f"volatility surge (5d/60d vol ratio {vol_5 / vol_60:.1f}×)"
+                )
+
+            mom_10 = float(r.tail(10).sum())
+            mom_60 = float(r.tail(min(60, len(r))).sum())
+            if mom_10 < -0.01 and mom_60 > 0.02:
+                signals[t].append(
+                    "momentum break (established uptrend losing short-term traction)"
+                )
+            elif mom_10 > 0.01 and mom_60 < -0.02:
+                signals[t].append(
+                    "counter-trend bounce (short-term recovery within a longer downtrend)"
+                )
+
+            prices  = (1 + r).cumprod()
+            peak_60 = float(prices.tail(min(60, len(prices))).max())
+            current = float(prices.iloc[-1])
+            if peak_60 > 0 and (current / peak_60 - 1.0) < -0.08:
+                signals[t].append(
+                    f"drawdown warning ({current / peak_60 - 1.0:+.1%} from 60d peak)"
+                )
+
+        return signals
+
+    # ------------------------------------------------------------------
+    # Futures Thinking Principle 3: Look back to see forward (backcasting)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _backcast_regimes(rets: pd.DataFrame, tickers: list[str]) -> dict:
+        """
+        IFTF Principle 3 — Look back to see forward.
+
+        Uses backcasting (not forecasting): locate historical windows whose
+        volatility regime resembles the current one and report what typically
+        followed.  The future seldom replicates past events but frequently
+        mirrors the *patterns* influencing its progression.
+
+        Returns a dict with:
+            analog_count        : number of matching historical windows
+            median_fwd_return   : median portfolio return over the next 10 days
+                                  across all analogous windows
+            pct_positive        : fraction of analogous windows where fwd return > 0
+            regime_label        : qualitative description of the current regime
+        """
+        port = rets.mean(axis=1).dropna()
+        if len(port) < 40:
+            return {
+                "analog_count": 0,
+                "median_fwd_return": None,
+                "pct_positive": None,
+                "regime_label": "insufficient history for backcasting",
+            }
+
+        window = 10
+        current_vol = float(port.tail(window).std())
+
+        analog_fwd: list[float] = []
+        for i in range(len(port) - window * 2):
+            hist_vol = float(port.iloc[i: i + window].std())
+            if current_vol > 0 and abs(hist_vol - current_vol) / current_vol < 0.25:
+                fwd = port.iloc[i + window: i + window * 2]
+                analog_fwd.append(float((1 + fwd).prod() - 1))
+
+        if not analog_fwd:
+            return {
+                "analog_count": 0,
+                "median_fwd_return": None,
+                "pct_positive": None,
+                "regime_label": "no analogous historical regimes found",
+            }
+
+        arr = np.array(analog_fwd)
+        overall_vol = float(port.std())
+        regime_label = (
+            "elevated stress"
+            if current_vol > overall_vol * 1.5
+            else "typical volatility"
+        )
+        return {
+            "analog_count": len(arr),
+            "median_fwd_return": float(np.median(arr)),
+            "pct_positive": float((arr > 0).mean()),
+            "regime_label": regime_label,
+        }
+
+    # ------------------------------------------------------------------
+    # Futures Thinking Principle 4: Uncover patterns (Two Curves)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _two_curves_classify(rets: pd.DataFrame, tickers: list[str]) -> dict[str, str]:
+        """
+        IFTF Principle 4 — Uncover patterns: Two Curves framework.
+
+        During transformative periods two distinct curves coexist:
+          First curve  — the long-running established trend (understood rules,
+                         declining trajectory, uncertain obsolescence date).
+          Second curve — the nascent ascending pattern (only initial signals
+                         visible, much left to imagination).
+
+        Classification per ticker
+        -------------------------
+        first_curve_ascending  : established uptrend intact in both short & long windows.
+        first_curve_peak       : long trend positive but short momentum reversing — the
+                                 first curve may be reaching its inflection point.
+        first_curve_declining  : established downtrend intact in both short & long windows.
+        second_curve_emerging  : long trend negative but short momentum turning positive —
+                                 a nascent second curve may be forming.
+        transition             : mixed / flat signals; curve boundary unclear.
+        indeterminate          : insufficient history.
+        """
+        result: dict[str, str] = {}
+        for t in tickers:
+            r = rets[t].dropna()
+            if len(r) < 20:
+                result[t] = "indeterminate"
+                continue
+
+            mom_long  = float(r.tail(min(60, len(r))).sum())
+            mom_short = float(r.tail(10).sum())
+
+            if mom_long > 0.03 and mom_short < -0.01:
+                result[t] = "first_curve_peak"
+            elif mom_long < -0.03 and mom_short > 0.01:
+                result[t] = "second_curve_emerging"
+            elif mom_long > 0.01 and mom_short > 0.01:
+                result[t] = "first_curve_ascending"
+            elif mom_long < -0.01 and mom_short < -0.01:
+                result[t] = "first_curve_declining"
+            else:
+                result[t] = "transition"
+
+        return result
+
+    # ------------------------------------------------------------------
     # Reasoning string
     # ------------------------------------------------------------------
+
+    _CURVE_LABELS: dict[str, str] = {
+        "first_curve_ascending": "First Curve ↑  (established uptrend)",
+        "first_curve_peak":      "First Curve ⚠  (peak / exhaustion — watch for inflection)",
+        "first_curve_declining": "First Curve ↓  (established downtrend)",
+        "second_curve_emerging": "Second Curve ↗ (nascent trend emerging from prior decline)",
+        "transition":            "Transition     (between curves — signals mixed)",
+        "indeterminate":         "Indeterminate  (insufficient history)",
+    }
 
     def _build_reasoning(
         self,
@@ -417,23 +594,80 @@ print(json.dumps({{
         annual_vol: dict[str, float],
         chaos_signal,
         dominant_factor_var: float,
+        signals: dict[str, list[str]],
+        backcast: dict,
+        two_curves: dict[str, str],
+        horizon: int | None = None,
     ) -> str:
+        horizon = horizon if horizon is not None else self.horizon_days
+        horizon_label = (
+            "2-YEAR" if horizon >= self.TWO_YEAR_DAYS
+            else "1-YEAR"
+        )
         level = (
             "HIGH RISK"    if chaos_signal.crash_probability >= 0.65
             else "CAUTION" if chaos_signal.crash_probability >= 0.40
             else "NORMAL"
         )
+
         lines = [
-            f"CrystalBall [{pd.Timestamp(as_of).date()}] — 1-YEAR OUTLOOK"
-            f" ({self.horizon_days} trading days)",
-            f"  Risk regime              : {level}",
-            f"  Crash probability        : {chaos_signal.crash_probability:.3f}",
-            f"  Dominant factor variance : {dominant_factor_var:.4f} (annualised)",
-            f"  Ticker scenarios:",
+            f"CrystalBall [{pd.Timestamp(as_of).date()}] — {horizon_label} OUTLOOK"
+            f" ({horizon} trading days)",
+            "",
+            "── PRINCIPLE 2: FORWARD-LOOKING SIGNALS ─────────────────────────────",
+            "  (Signals are anomalous deviations that may indicate future"
+            " discontinuities,",
+            "   not predictions. Future data does not exist; only signals do.)",
+        ]
+        any_signal = False
+        for t in tickers:
+            sigs = signals.get(t, [])
+            if sigs:
+                any_signal = True
+                lines.append(f"  {t:6s}: " + " | ".join(sigs))
+        if not any_signal:
+            lines.append(
+                "  No anomalous signals detected — market in baseline continuity."
+            )
+
+        lines += [
+            "",
+            "── PRINCIPLE 3: LOOK BACK TO SEE FORWARD (BACKCASTING) ──────────────",
+            "  (Historical analogues reveal recurrent patterns, not repetitions.)",
+        ]
+        if backcast.get("analog_count", 0) > 0:
+            lines += [
+                f"  Analogous historical regimes : {backcast['analog_count']}",
+                f"  Median forward return        : {backcast['median_fwd_return']:+.2%}"
+                f"  (next 10 days across all analogues)",
+                f"  Historically positive        : {backcast['pct_positive']:.0%} of analogues",
+                f"  Current regime pattern       : {backcast['regime_label']}",
+            ]
+        else:
+            lines.append(f"  {backcast.get('regime_label', 'Backcasting unavailable.')}")
+
+        lines += [
+            "",
+            "── PRINCIPLE 4: TWO CURVES PATTERN FRAMEWORK ────────────────────────",
+            "  (First curve = established trend; Second curve = nascent emergence.",
+            "   The inflection between them is where futures thinking adds most value.)",
+            f"  Dominant market factor variance (annualised): {dominant_factor_var:.4f}",
+        ]
+        for t in tickers:
+            curve = two_curves.get(t, "indeterminate")
+            lines.append(
+                f"  {t:6s}: {self._CURVE_LABELS.get(curve, curve)}"
+            )
+
+        lines += [
+            "",
+            "── SCENARIO PROJECTIONS ──────────────────────────────────────────────",
+            f"  Risk regime      : {level}",
+            f"  Crash probability: {chaos_signal.crash_probability:.3f}",
         ]
         for t in tickers:
             lines.append(
-                f"    {t:6s}  base: {base_returns[t]:+.1%}  "
+                f"  {t:6s}  base: {base_returns[t]:+.1%}  "
                 f"bull: {bull_returns[t]:+.1%}  "
                 f"bear: {bear_returns[t]:+.1%}  "
                 f"vol: {annual_vol[t]:.1%}  "
@@ -445,16 +679,26 @@ print(json.dumps({{
     # Public interface
     # ------------------------------------------------------------------
 
-    def predict(self, data: MarketData, news: NewsFeed, as_of) -> CrystalBallPrediction:
+    def predict(
+        self,
+        data: MarketData,
+        news: NewsFeed,
+        as_of,
+        horizon_days: int | None = None,
+    ) -> CrystalBallPrediction:
         """
-        Produce a 1-year ``CrystalBallPrediction``.
+        Produce a ``CrystalBallPrediction`` for the given horizon.
 
         Parameters
         ----------
-        data   : point-in-time ``MarketData`` (no look-ahead).
-        news   : ``NewsFeed`` passed through to the ``ChaosEngine``.
-        as_of  : the 'current' timestamp.
+        data          : point-in-time ``MarketData`` (no look-ahead).
+        news          : ``NewsFeed`` passed through to the ``ChaosEngine``.
+        as_of         : the 'current' timestamp.
+        horizon_days  : trading-day horizon for this call.  Defaults to the
+                        instance ``horizon_days`` (252 ≈ 1 year).  Pass
+                        ``CrystalBall.TWO_YEAR_DAYS`` (504) for a 2-year view.
         """
+        horizon = horizon_days if horizon_days is not None else self.horizon_days
         tickers = data.tickers
         rets = data.returns().loc[:as_of].tail(self.lookback)
 
@@ -477,7 +721,7 @@ print(json.dumps({{
 
         for t in tickers:
             daily_exp = short_forecast.expected_returns.get(t, 0.0) / self.short_horizon
-            base = float((1.0 + daily_exp) ** self.horizon_days - 1.0)
+            base = float((1.0 + daily_exp) ** horizon - 1.0)
             vol  = annual_vol[t]
             base_returns[t]           = base
             bull_returns[t]           = base + 1.5 * vol
@@ -487,14 +731,21 @@ print(json.dumps({{
         # 5. Confidence inherited from short-horizon forecast
         confidence = {t: short_forecast.confidence.get(t, 0.0) for t in tickers}
 
+        # 6. Futures Thinking enrichment (Principles 2, 3, 4)
+        signals    = self._detect_signals(rets, tickers)
+        backcast   = self._backcast_regimes(rets, tickers)
+        two_curves = self._two_curves_classify(rets, tickers)
+
         reasoning = self._build_reasoning(
             as_of, tickers, base_returns, bull_returns, bear_returns,
             crash_adjusted_returns, annual_vol, chaos_signal, dominant_factor_var,
+            signals, backcast, two_curves,
+            horizon=horizon,
         )
 
         return CrystalBallPrediction(
             as_of=pd.Timestamp(as_of),
-            horizon_days=self.horizon_days,
+            horizon_days=horizon,
             base_returns=base_returns,
             bull_returns=bull_returns,
             bear_returns=bear_returns,

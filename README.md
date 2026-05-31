@@ -142,8 +142,8 @@ same contract objects, which is what makes the comparison fair.
 
 ## Crystal Ball
 
-`CrystalBall` (Layer 2.6, in `forecast.py`) is a 1-year scenario forecaster that
-fuses two signals produced earlier in the pipeline:
+`CrystalBall` (Layer 2.6, in `forecast.py`) is a scenario forecaster that fuses
+two signals produced earlier in the pipeline:
 
 - A short-horizon **`Forecast`** from any `Forecaster` (momentum or quantum SVD).
 - A **`ChaosSignal`** from `ChaosEngine`, carrying crash probability and per-ticker
@@ -151,7 +151,17 @@ fuses two signals produced earlier in the pipeline:
 
 It uses the same xpyq quantum path as both `ChaosEngine` and `QuantumForecaster`:
 it submits the returns covariance matrix to xpyq `linalg.eig` and uses the
-returned eigenvalues as factor variances for a 1-year projection.
+returned eigenvalues as factor variances for the projection.
+
+The default forecast horizon is **1 year (252 trading days)**. A 2-year view
+(504 trading days) is also available per-call:
+
+```python
+cb = CrystalBall(forecaster, chaos_engine)           # default 1-year
+pred_1y = cb.predict(data, news, as_of)              # 1-year
+pred_2y = cb.predict(data, news, as_of,
+                     horizon_days=CrystalBall.TWO_YEAR_DAYS)  # 2-year
+```
 
 ### How Crystal Ball works
 
@@ -163,7 +173,7 @@ returned eigenvalues as factor variances for a 1-year projection.
    × 252 is the dominant factor variance (a measure of market-wide co-movement).
 4. **Annual vol per ticker** — derived from the factor model:
    `vol_i = sqrt(sum_k  loading_ik^2 * eigenvalue_k * 252)`.
-5. **Compound to 1 year** — `base = (1 + daily_exp)^252 − 1` per ticker.
+5. **Compound to horizon** — `base = (1 + daily_exp)^horizon_days − 1` per ticker.
 6. **Scenarios** — three return paths per ticker:
 
 | Scenario | Formula |
@@ -173,8 +183,18 @@ returned eigenvalues as factor variances for a 1-year projection.
 | `bear` | `base − 1.5 × annual_vol` |
 | `crash_adjusted` | `base × ChaosSignal.ticker_adjustments[ticker]` |
 
-7. **Reasoning string** — a plain-English narrative combining the risk regime,
-   crash probability, dominant factor variance, and per-ticker scenario bounds.
+7. **IFTF Futures Thinking enrichment** — three analytical layers are computed from
+   the same price-return data (no new external inputs) and embedded in the reasoning:
+
+| IFTF Principle | Method | What it produces |
+|---|---|---|
+| **P2 — Focus on signals** | `_detect_signals` | Per-ticker anomalous deviations: volatility surges (5d/60d vol ratio > 1.8×), momentum breaks, counter-trend bounces, drawdown warnings |
+| **P3 — Look back to see forward** | `_backcast_regimes` | Locates historical windows with a similar vol regime (±25 %) and reports median forward return and fraction positive across all analogues |
+| **P4 — Uncover patterns** | `_two_curves_classify` | Classifies each ticker on the IFTF Two Curves framework: `first_curve_ascending`, `first_curve_peak`, `first_curve_declining`, `second_curve_emerging`, `transition`, or `indeterminate` |
+
+8. **Reasoning string** — a structured plain-English narrative with four labelled
+   sections: signals (P2), backcasting (P3), Two Curves (P4), and scenario
+   projections.
 
 Falls back to `numpy.linalg.eigh` (classical, symmetric, numerically stable)
 when `XPYQ_KEY` is not set or the API is unreachable.
