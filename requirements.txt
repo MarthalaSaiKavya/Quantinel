@@ -1,2 +1,5 @@
 pandas>=2.3.3
 numpy>=1.26.4
+requests
+exa-py
+scikit-learn
