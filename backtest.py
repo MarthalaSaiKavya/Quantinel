@@ -79,8 +79,8 @@ class Backtest:
                 else NewsFeed(as_of=t, articles=[])
             )
             risk = self.risk.estimate(window, news, forecast, t)  # Layer 3
-            target = self.optimizer.solve(forecast, risk)  # Layer 4
-            execed = self.executor.execute(target, data, t)  # Layer 5
+            target = self.optimizer.solve(forecast, risk)          # Layer 4
+            execed = self.executor.execute(target, data, t)        # Layer 5
 
             fwd = {
                 tk: float(closes[tk].loc[t_fwd] / closes[tk].loc[t] - 1)
@@ -89,6 +89,6 @@ class Backtest:
             records.append(StepRecord(t, execed.realized_weights, fwd, forecast, risk))
             baseline.append(
                 StepRecord(t, {tk: 0.5 for tk in data.tickers}, fwd, None, None)
-            )  # 50/50 hold
+            )
 
         return data, records, baseline

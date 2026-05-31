@@ -538,4 +538,3 @@ class TestNewsData:
         assert np.mean(pos_sents) > np.mean(neg_sents), (
             "Bullish sentiment should average higher on up-days than down-days"
         )
-
