@@ -9,7 +9,7 @@ Pipeline integration example (run_baseline.py)::
 
     from chaos import ChaosEngine, MockNewsSource
 
-    engine = ChaosEngine()                           # IBM creds read from env vars
+    engine = ChaosEngine()                           # XPYQ_KEY read from env
     news   = MockNewsSource().fetch(as_of=as_of)     # swap for RealNewsSource later
     signal = engine.evaluate(data, news, as_of=as_of)
     print(signal.reasoning)                          # plain-English recommendation
@@ -17,20 +17,27 @@ Pipeline integration example (run_baseline.py)::
     forecast  = engine.adjust_forecast(forecast, signal)   # dampen / flip forecasts
     portfolio = engine.adjust_portfolio(portfolio, signal)  # scale / short positions
 
-IBM Quantum backend
--------------------
-Same environment variables as QuantumForecaster:
-    IBM_QUANTUM_TOKEN, IBM_QUANTUM_INSTANCE, IBM_QUANTUM_CHANNEL, IBM_QUANTUM_BACKEND
-Falls back to local Aer simulation when no credentials are found.
+XpyQ backend
+------------
+Set XPYQ_KEY in the environment (or pass api_key= to the constructor).
+The engine submits crash-cluster covariance matrices to xpyq's linalg.eig
+endpoint; eigenvectors define the principal crash directions used to score
+the current market feature vector.
+Falls back to a classical centroid-distance estimate when no key is set or
+the API is unreachable.
 """
 from __future__ import annotations
 
+import json
 import os
+import time
 
 import numpy as np
 import pandas as pd
 
 from contracts import ChaosSignal, Forecast, MarketData, NewsItem, TargetPortfolio
+
+_XPYQ_BASE = "https://xpyq-lib-production.up.railway.app"
 
 
 # ============================================================================
@@ -118,24 +125,26 @@ class ChaosEngine:
     Workflow
     --------
     1. Build market features from ``MarketData`` (vol regime, momentum,
-       drawdown, volatility spike ratio) — these are the VQC training inputs.
-    2. Train a binary VQC on historical windows:
+       drawdown, volatility spike ratio).
+    2. Label historical windows:
            label = 1  if worst return over next ``crash_horizon`` days
                       falls below ``crash_threshold``  (i.e. a crash occurred)
            label = 0  otherwise
-    3. Run inference on the current feature vector to get P(crash) from the
-       quantum circuit.
-    4. Adjust P(crash) up/down based on live news sentiment (Bayesian boost).
-    5. Return a ``ChaosSignal`` with:
+    3. Submit the crash-cluster covariance matrix to xpyq's linalg.eig
+       endpoint. Eigenvectors define the principal crash directions.
+    4. Project the current feature vector and both cluster centroids into
+       eigen-space; convert the distance ratio to P(crash).
+    5. Adjust P(crash) up/down based on live news sentiment (Bayesian boost).
+    6. Return a ``ChaosSignal`` with:
            crash_probability    — final blended estimate
            ticker_adjustments   — weight multipliers for adjust_portfolio()
            reasoning            — plain-English recommendation string
 
-    IBM Quantum backend
-    -------------------
-    Reads IBM_QUANTUM_TOKEN / IBM_QUANTUM_INSTANCE / IBM_QUANTUM_CHANNEL /
-    IBM_QUANTUM_BACKEND from environment (or pass as constructor args).
-    Falls back to local Aer statevector simulation when no token is set.
+    XpyQ backend
+    ------------
+    Reads XPYQ_KEY from the environment (or pass api_key= to the constructor).
+    Falls back to a classical centroid-distance estimate when no key is set or
+    the API is unreachable.
     """
 
     # Severity thresholds for action labels and position adjustments
@@ -147,69 +156,66 @@ class ChaosEngine:
         lookback: int = 120,
         crash_threshold: float = -0.04,   # -4 % in crash_horizon days = "crash"
         crash_horizon: int = 5,
-        reps: int = 2,
-        max_iter: int = 150,
-        ibm_token: str | None = None,
-        ibm_instance: str | None = None,
-        ibm_backend: str | None = None,
-        ibm_channel: str | None = None,
+        api_key: str | None = None,
+        poll_secs: float = 0.4,
+        timeout: float = 20.0,
     ) -> None:
         self.lookback = lookback
         self.crash_threshold = crash_threshold
         self.crash_horizon = crash_horizon
-        self.reps = reps
-        self.max_iter = max_iter
-        self.ibm_token = ibm_token or os.getenv("IBM_QUANTUM_TOKEN")
-        self.ibm_instance = ibm_instance or os.getenv("IBM_QUANTUM_INSTANCE") or None
-        self.ibm_backend = ibm_backend or os.getenv("IBM_QUANTUM_BACKEND")
-        self.ibm_channel = ibm_channel or os.getenv("IBM_QUANTUM_CHANNEL", "ibm_quantum_platform")
+        self.api_key = api_key or os.getenv("XPYQ_KEY", "")
+        self.poll_secs = poll_secs
+        self.timeout = timeout
+        self._disabled = not bool(self.api_key)
 
     # ------------------------------------------------------------------
-    # Sampler primitive (IBM hardware or local Aer)
+    # xpyq helpers
     # ------------------------------------------------------------------
 
-    def _build_sampler(self):
-        """
-        Return (sampler, pass_manager) for the VQC.
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
-        LOCAL  (default): no IBM_QUANTUM_TOKEN set → uses local Aer simulator.
-        CLOUD           : set IBM_QUANTUM_TOKEN (and optionally IBM_QUANTUM_CHANNEL,
-                          IBM_QUANTUM_INSTANCE, IBM_QUANTUM_BACKEND) in .env or the
-                          environment to route jobs to real IBM Quantum hardware.
-        """
-        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+    def _run_code(self, code: str, name: str = "chaos") -> dict:
+        """Submit code to xpyq and block until a terminal status is reached."""
+        import requests
 
-        if self.ibm_token:
-            # ── CLOUD path ────────────────────────────────────────────────────
-            # Jobs are sent to IBM Quantum hardware.  Requires IBM_QUANTUM_TOKEN.
-            # Set IBM_QUANTUM_BACKEND to target a specific device, or leave blank
-            # to auto-select the least-busy operational backend.
-            from qiskit_ibm_runtime import QiskitRuntimeService
-            from qiskit_ibm_runtime import SamplerV2 as IBMSampler
+        if self._disabled:
+            return {"status": "disabled", "stdout": ""}
 
-            service = QiskitRuntimeService(
-                channel=self.ibm_channel,
-                token=self.ibm_token,
-                **({"instance": self.ibm_instance} if self.ibm_instance else {}),
-            )
-            backend = (
-                service.backend(self.ibm_backend)
-                if self.ibm_backend
-                else service.least_busy(operational=True, simulator=False)
-            )
-            pass_manager = generate_preset_pass_manager(optimization_level=1, backend=backend)
-            return IBMSampler(mode=backend), pass_manager
-        else:
-            # ── LOCAL path (default) ──────────────────────────────────────────
-            # Runs entirely on your CPU via Aer statevector simulation.
-            # No IBM account or network connection needed.
-            # To switch to cloud: add IBM_QUANTUM_TOKEN to your .env file.
-            from qiskit_aer import AerSimulator
-            from qiskit_aer.primitives import SamplerV2 as AerSampler
+        h = self._headers()
+        run = requests.post(
+            f"{_XPYQ_BASE}/api/v1/compute/runs",
+            headers=h,
+            json={"code": code, "name": name},
+            timeout=10,
+        ).json()
+        run_id = run.get("run_id") or run.get("id")
+        if not run_id:
+            self._disabled = True
+            return {"status": "failed", "stdout": ""}
 
-            backend = AerSimulator()
-            pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
-            return AerSampler(), pass_manager
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
+            r = requests.get(
+                f"{_XPYQ_BASE}/api/v1/compute/runs/{run_id}",
+                headers=h,
+                timeout=10,
+            ).json()
+            if r["status"] in ("completed", "failed", "timed_out", "cancelled"):
+                return r
+            time.sleep(self.poll_secs)
+        return {"status": "timed_out", "stdout": ""}
+
+    @staticmethod
+    def _parse_json_stdout(stdout: str) -> dict:
+        for line in reversed(stdout.splitlines()):
+            line = line.strip()
+            if line.startswith("{") and line.endswith("}"):
+                return json.loads(line)
+        raise ValueError("xpyq stdout did not contain a JSON object")
 
     # ------------------------------------------------------------------
     # Feature engineering
@@ -274,32 +280,94 @@ class ChaosEngine:
         return np.array(X, dtype=float), np.array(y, dtype=int)
 
     # ------------------------------------------------------------------
-    # VQC training
+    # XpyQ eigen-classification
     # ------------------------------------------------------------------
 
-    def _train_vqc(self, X: np.ndarray, y: np.ndarray, sampler, pass_manager):
-        from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap
-        from qiskit_algorithms.optimizers import COBYLA
-        from qiskit_machine_learning.algorithms import VQC
-        from sklearn.preprocessing import MinMaxScaler
+    def _xpyq_classify(self, X: np.ndarray, y: np.ndarray, feat_now: np.ndarray) -> float:
+        """
+        Estimate P(crash) via xpyq eigendecomposition of the crash cluster.
 
-        scaler = MinMaxScaler(feature_range=(0.0, float(np.pi)))
-        X_scaled = scaler.fit_transform(X)
+        Steps
+        -----
+        1. Normalise all features to [0, 1].
+        2. Compute the covariance matrix of crash-labelled samples.
+        3. Send it to xpyq linalg.eig to get principal crash directions.
+        4. Project the current feature vector and both cluster centroids into
+           eigen-space; return  dist_normal / (dist_crash + dist_normal).
+           A point close to the crash centroid yields a high probability.
+        Falls back to ``_classical_classify`` if xpyq is unavailable.
+        """
+        X_crash  = X[y == 1]
+        X_normal = X[y == 0]
 
-        n_features = X.shape[1]
-        feature_map = ZZFeatureMap(feature_dimension=n_features, reps=1)
-        ansatz      = RealAmplitudes(num_qubits=n_features, reps=self.reps)
-        optimizer   = COBYLA(maxiter=self.max_iter)
+        if len(X_crash) < 2:
+            return self._classical_classify(X, y, feat_now)
 
-        vqc = VQC(
-            feature_map=feature_map,
-            ansatz=ansatz,
-            optimizer=optimizer,
-            sampler=sampler,
-            pass_manager=pass_manager,   # transpiles ZZFeatureMap into native gates
-        )
-        vqc.fit(X_scaled, y)
-        return vqc, scaler
+        # Normalise to [0, 1]
+        X_min   = X.min(axis=0)
+        X_range = X.max(axis=0) - X_min
+        X_range[X_range == 0] = 1.0
+        X_crash_s  = (X_crash  - X_min) / X_range
+        X_normal_s = (X_normal - X_min) / X_range
+        feat_s     = (feat_now - X_min) / X_range
+
+        crash_centroid  = X_crash_s.mean(axis=0)
+        normal_centroid = X_normal_s.mean(axis=0)
+        cov_crash = np.cov(X_crash_s.T).tolist()
+
+        code = f"""
+import numpy as _np, json
+
+cov  = from_numpy(_np.array({cov_crash}, dtype=_np.float32))
+feat = _np.array({feat_s.tolist()}, dtype=_np.float32)
+cc   = _np.array({crash_centroid.tolist()}, dtype=_np.float32)
+nc   = _np.array({normal_centroid.tolist()}, dtype=_np.float32)
+
+eigvals_mat, eigvecs_mat = linalg.eig(cov)
+eigvals_arr, eigvecs_arr = eigvals_mat.numpy()
+
+delta_crash  = feat - cc
+delta_normal = feat - nc
+proj_crash   = eigvecs_arr.T @ delta_crash
+proj_normal  = eigvecs_arr.T @ delta_normal
+dist_crash   = float(_np.linalg.norm(proj_crash))
+dist_normal  = float(_np.linalg.norm(proj_normal))
+
+print(json.dumps({{
+    "dist_crash":  dist_crash,
+    "dist_normal": dist_normal,
+}}))
+"""
+        try:
+            result = self._run_code(code, name="chaos_eig")
+            if result["status"] != "completed" or not result.get("stdout", "").strip():
+                if result["status"] in ("failed", "timed_out", "cancelled"):
+                    self._disabled = True
+                return self._classical_classify(X, y, feat_now)
+            out = self._parse_json_stdout(result["stdout"])
+        except Exception:
+            self._disabled = True
+            return self._classical_classify(X, y, feat_now)
+
+        dist_crash  = float(out["dist_crash"])
+        dist_normal = float(out["dist_normal"])
+        total = dist_crash + dist_normal + 1e-8
+        return float(dist_normal / total)   # closer to crash cluster → higher P
+
+    @staticmethod
+    def _classical_classify(X: np.ndarray, y: np.ndarray, feat_now: np.ndarray) -> float:
+        """Classical fallback: centroid distance ratio in normalised feature space."""
+        X_min   = X.min(axis=0)
+        X_range = X.max(axis=0) - X_min
+        X_range[X_range == 0] = 1.0
+        X_s    = (X - X_min) / X_range
+        feat_s = (feat_now - X_min) / X_range
+        crash_centroid  = X_s[y == 1].mean(axis=0) if (y == 1).any() else feat_s
+        normal_centroid = X_s[y == 0].mean(axis=0) if (y == 0).any() else feat_s
+        d_crash  = float(np.linalg.norm(feat_s - crash_centroid))
+        d_normal = float(np.linalg.norm(feat_s - normal_centroid))
+        total = d_crash + d_normal + 1e-8
+        return float(d_normal / total)
 
     # ------------------------------------------------------------------
     # News sentiment aggregation
@@ -416,14 +484,8 @@ class ChaosEngine:
         if len(X) < 10 or len(np.unique(y)) < 2:
             return _fallback()
 
-        sampler, pass_manager = self._build_sampler()
-        vqc, scaler = self._train_vqc(X, y, sampler, pass_manager)
-
-        # Inference: current feature vector
-        feat_now = feat_df.iloc[-1].to_numpy(dtype=float)
-        X_pred   = scaler.transform(feat_now.reshape(1, -1))
-        prob     = vqc.predict_proba(X_pred)[0]
-        quantum_p = float(prob[1])   # P(crash label)
+        feat_now  = feat_df.iloc[-1].to_numpy(dtype=float)
+        quantum_p = self._xpyq_classify(X, y, feat_now)
 
         # Blend with news sentiment
         avg_sentiment = self._aggregate_sentiment(news)
