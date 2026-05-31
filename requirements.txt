@@ -3,3 +3,4 @@ numpy>=1.26.4
 requests
 exa-py
 scikit-learn
+yfinance>=0.2.40
