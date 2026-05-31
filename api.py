@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -53,11 +53,24 @@ def pipeline():
 
 
 @app.get("/api/pipeline/refresh")
-def pipeline_refresh(background_tasks: BackgroundTasks):
+def pipeline_refresh():
     status = pipeline_status()
     if status["running"]:
         return {"status": "already_running", "ready": False}
-    background_tasks.add_task(get_pipeline_payload, refresh=True)
+
+    import threading
+
+    def _safe_run():
+        try:
+            get_pipeline_payload(refresh=True)
+        except Exception as exc:
+            import traceback
+
+            traceback.print_exc()
+            print(f"[api] Pipeline crashed: {exc}", flush=True)
+
+    t = threading.Thread(target=_safe_run, daemon=True)
+    t.start()
     return {"status": "started", "ready": False}
 
 
