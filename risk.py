@@ -14,10 +14,15 @@ and worst CVaR, plus a disagreement score.
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 
 from contracts import Forecast, MarketData, NewsFeed, PerSubAgentRisk, RiskModel
+
+if not os.environ.get("LOKY_MAX_CPU_COUNT"):
+    os.environ["LOKY_MAX_CPU_COUNT"] = str(os.cpu_count() or 1)
 
 
 class SampleCovRisk:
@@ -104,7 +109,6 @@ class SampleCovRisk:
         Diffusion = historical annualized vol (scaled to daily).
         """
         rng = np.random.default_rng(42)  # deterministic seed
-        dt = 1 / 252
         horizon = self.horizon_days
 
         var_95: dict[str, float] = {}
@@ -114,9 +118,10 @@ class SampleCovRisk:
             mu_daily = forecast.expected_returns[t] / horizon
             sigma_daily = vol[t] / np.sqrt(252)
 
-            # Simulate: N paths x H days
+            # Simulate: N paths x H days. Forecast drift and historical sigma are
+            # already daily units here, so do not scale them by dt again.
             Z = rng.standard_normal((self.n_paths, horizon))
-            daily_ret = mu_daily * dt + sigma_daily * np.sqrt(dt) * Z
+            daily_ret = mu_daily + sigma_daily * Z
             cum_ret = np.cumprod(1 + daily_ret, axis=1)[:, -1] - 1
 
             var_95[t] = float(np.percentile(cum_ret, 5))
@@ -155,48 +160,56 @@ class SampleCovRisk:
                 cvar_95[t] = 0.0
                 continue
 
-            # K-means: 2 clusters → bull (higher mean) / bear (lower mean)
-            from sklearn.cluster import KMeans  # noqa: PLC0415
+            # 1D two-regime split: lower half = bear, upper half = bull.
+            # This preserves the bull/bear regime intent without pulling
+            # sklearn/joblib into every rebalance simulation.
+            threshold = float(np.median(r))
+            labels = (r >= threshold).astype(int)
+            means = np.array(
+                [
+                    r[labels == 0].mean() if np.any(labels == 0) else r.mean(),
+                    r[labels == 1].mean() if np.any(labels == 1) else r.mean(),
+                ]
+            )
 
-            X = r.reshape(-1, 1)
-            km = KMeans(n_clusters=2, random_state=0, n_init=10).fit(X)
-            means = km.cluster_centers_.flatten()
-            bull_idx = int(np.argmax(means))
-            bear_idx = 1 - bull_idx
-
-            # Base transition: count empirical transitions
-            labels = km.labels_
+            # Base transition in canonical state order: 0=bear, 1=bull.
             trans = np.zeros((2, 2))
             for i in range(len(labels) - 1):
                 trans[labels[i], labels[i + 1]] += 1
-            trans = trans / trans.sum(axis=1, keepdims=True)
+            row_sums = trans.sum(axis=1, keepdims=True)
+            trans = np.divide(
+                trans,
+                row_sums,
+                out=np.full_like(trans, 0.5),
+                where=row_sums > 0,
+            )
 
             # Sentiment adjustment: negative sentiment → stickier bear, less sticky bull
             s = sentiment.get(t, 0.0)
             bias = np.clip(s, -0.5, 0.5) * 0.15
             P = trans.copy()
-            P[bear_idx, bear_idx] -= bias  # negative s → -bias positive → stickier bear
-            P[bull_idx, bull_idx] += (
-                bias  # negative s → +bias negative → less sticky bull
-            )
+            P[0, 0] -= bias  # negative s → -bias positive → stickier bear
+            P[1, 1] += bias  # negative s → +bias negative → less sticky bull
             P = np.clip(P, 0.01, 0.99)
             P = P / P.sum(axis=1, keepdims=True)
 
             # Stationary distribution
             eigvals, eigvecs = np.linalg.eig(P.T)
-            stationary = np.real(eigvecs[:, np.argmax(np.real(eigvals))])
+            stationary = np.real(eigvecs[:, np.argmin(np.abs(eigvals - 1.0))])
+            if stationary.sum() < 0:
+                stationary = -stationary
             stationary = stationary / stationary.sum()
 
-            # Simulate paths (daily returns, summed to horizon)
-            mu_regime = np.array([means[bear_idx], means[bull_idx]])
+            # Simulate paths (daily returns, summed to horizon).
+            mu_regime = means
             sigma_daily = float(r.std())
 
             paths = np.zeros((self.n_paths, horizon))
-            for p in range(self.n_paths):
-                state = int(rng.choice([0, 1], p=stationary))
-                for h in range(horizon):
-                    paths[p, h] = rng.normal(mu_regime[state], sigma_daily)
-                    state = int(rng.choice([0, 1], p=P[state]))
+            states = rng.choice([0, 1], size=self.n_paths, p=stationary)
+            for h in range(horizon):
+                paths[:, h] = rng.normal(mu_regime[states], sigma_daily)
+                bull_prob = P[states, 1]
+                states = (rng.random(self.n_paths) < bull_prob).astype(int)
 
             cum_ret = paths.sum(axis=1)  # sum of daily returns = horizon return
             var_95[t] = float(np.percentile(cum_ret, 5))
@@ -232,16 +245,11 @@ class SampleCovRisk:
                 continue
 
             n_blocks = n - block_len + 1
-            paths = np.zeros(self.n_paths)
-            for p in range(self.n_paths):
-                cum = 0.0
-                steps = 0
-                while steps < horizon:
-                    start = rng.integers(0, n_blocks)
-                    blk = daily_ret[start : start + block_len]
-                    cum += blk.sum()
-                    steps += len(blk)
-                paths[p] = cum
+            blocks_needed = int(np.ceil(horizon / block_len))
+            starts = rng.integers(0, n_blocks, size=(self.n_paths, blocks_needed))
+            offsets = np.arange(block_len)
+            samples = daily_ret[starts[..., None] + offsets]
+            paths = samples.reshape(self.n_paths, -1)[:, :horizon].sum(axis=1)
 
             var_95[t] = float(np.percentile(paths, 5))
             tail = paths[paths <= var_95[t]]

@@ -2,22 +2,22 @@
 LAYER 2 · FORECAST   (owner: GT (10780))
 
 BASELINE (no ML, no quantum): MomentumForecaster.
-QUANTUM SWAP: QuantumForecaster (QSVM / VQC) — same interface, you fill the body.
-You could also drop in a Chronos or LSTM forecaster here; the contract is identical.
-
-QuantumForecaster is designed to run on IBM Quantum hardware via Qiskit Runtime, but it can also run locally on a simulator if no credentials are provided.  See the docstring for details and usage instructions.
-VCQ has been chosen as the quantum model for this challenge because it is relatively lightweight to train and infer, and it has a nice probabilistic output that maps well to the Forecast contract.  However, feel free to experiment with other quantum algorithms or models if you prefer.
-Chronos forecasting is also added as a third option.  It uses Amazon's pretrained Chronos-T5 transformer, which is a zero-shot probabilistic time-series model — no training loop required.  The model is downloaded from HuggingFace on first use and cached locally.
-
+QUANTUM SWAP: QuantumForecaster — submits Python to the xpyq compute API.
+  xpyq runs SVD on its purpose-built hardware; we read back U/S/Vt and
+  extract factor-momentum signals per ticker. Same interface — drop it in.
 """
 from __future__ import annotations
 
+import json
 import os
+import time
 
 import numpy as np
 import pandas as pd
 
 from contracts import Forecast, MarketData
+
+_XPYQ_BASE = "https://xpyq-lib-production.up.railway.app"
 
 
 class MomentumForecaster:
@@ -52,294 +52,180 @@ class MomentumForecaster:
 
 class QuantumForecaster:
     """
-    VQC forecaster — SAME interface as MomentumForecaster, quantum brain.
+    Factor-momentum forecaster backed by the xpyq compute API.
 
-    For each ticker a labelled dataset is built from historical sliding windows:
-        feature  = last ``feature_window`` normalised daily returns  (→ qubits)
-        label    = 1 if next ``horizon_days`` cumulative return > 0, else 0
-    A Variational Quantum Classifier (ZZFeatureMap + RealAmplitudes ansatz,
-    COBYLA optimiser) is trained, then the inferred class probabilities are
-    mapped back to the Forecast contract:
-        direction[t]        = +1 / -1
-        confidence[t]       = P(winning class) ∈ [0.5, 1]
-        expected_returns[t] = direction[t] * confidence[t] * scale
+    How it works:
+      1. Build a returns matrix R (lookback x n_tickers) from recent history.
+      2. POST Python code to xpyq that calls linalg.svd(R) on hardware.
+         xpyq returns U (time factors), S (singular values), Vt (ticker loadings).
+      3. Compute factor scores F = U * S  — the time series of each market factor.
+      4. Factor momentum = F[-1, 0] - F[-horizon_days, 0]  (dominant factor trend).
+      5. Each ticker's direction = sign(factor_momentum * Vt[0, ticker_index]).
+      6. Falls back to MomentumForecaster if the API is unreachable or fails.
 
-    IBM Quantum backend
-    -------------------
-    Pass ``ibm_token`` (and optionally ``ibm_instance``, ``ibm_backend``,
-    ``ibm_channel``) to run on real hardware via ``QiskitRuntimeService``.
-    Alternatively set the environment variables:
-        IBM_QUANTUM_TOKEN     – API token from quantum.ibm.com
-        IBM_QUANTUM_INSTANCE  – hub/group/project (default: ibm-q/open/main)
-        IBM_QUANTUM_BACKEND   – backend name; omit to use least-busy
-        IBM_QUANTUM_CHANNEL   – "ibm_quantum" or "ibm_cloud" (default: ibm_quantum)
-    When no credentials are found, a local Aer statevector sampler is used.
+    Args:
+        api_key:    xpyq Bearer token.
+        lookback:   rows of return history fed into SVD (default 40).
+        poll_secs:  polling interval while waiting for xpyq result (default 0.4s).
+        timeout:    max seconds to wait per run before falling back (default 20s).
     """
 
     def __init__(
         self,
-        lookback: int = 60,
-        feature_window: int = 4,
-        reps: int = 2,
-        max_iter: int = 100,
-        ibm_token: str | None = None,
-        ibm_instance: str | None = None,
-        ibm_backend: str | None = None,
-        ibm_channel: str | None = None,
-        scale: float = 0.05,
-    ) -> None:
+        api_key: str | None = None,
+        lookback: int = 40,
+        poll_secs: float = 0.4,
+        timeout: float = 20.0,
+    ):
+        self.api_key = api_key or os.environ.get("XPYQ_KEY", "")
         self.lookback = lookback
-        self.feature_window = feature_window
-        self.reps = reps
-        self.max_iter = max_iter
-        self.ibm_token = ibm_token or os.getenv("IBM_QUANTUM_TOKEN")
-        self.ibm_instance = ibm_instance or os.getenv("IBM_QUANTUM_INSTANCE") or None
-        self.ibm_backend = ibm_backend or os.getenv("IBM_QUANTUM_BACKEND")
-        self.ibm_channel = ibm_channel or os.getenv("IBM_QUANTUM_CHANNEL", "ibm_quantum_platform")
-        self.scale = scale
+        self.poll_secs = poll_secs
+        self.timeout = timeout
+        self._fallback = MomentumForecaster()
+        self._disabled = not bool(self.api_key)
+        self._stats = {
+            "calls": 0,
+            "xpyq_completed": 0,
+            "fallbacks": 0,
+            "status_counts": {},
+        }
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # xpyq helpers
     # ------------------------------------------------------------------
 
-    def _build_sampler(self):
-        """Return (sampler, pass_manager) — IBM Quantum hardware or local Aer."""
-        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
 
-        if self.ibm_token:
-            from qiskit_ibm_runtime import QiskitRuntimeService
-            from qiskit_ibm_runtime import SamplerV2 as IBMSampler
+    def _run_code(self, code: str, name: str = "forecast") -> dict:
+        """Submit code to xpyq and block until terminal status."""
+        import requests
 
-            service = QiskitRuntimeService(
-                channel=self.ibm_channel,
-                token=self.ibm_token,
-                **({"instance": self.ibm_instance} if self.ibm_instance else {}),
-            )
-            backend = (
-                service.backend(self.ibm_backend)
-                if self.ibm_backend
-                else service.least_busy(operational=True, simulator=False)
-            )
-            pass_manager = generate_preset_pass_manager(optimization_level=1, backend=backend)
-            return IBMSampler(mode=backend), pass_manager
-        else:
-            from qiskit_aer import AerSimulator
-            from qiskit_aer.primitives import SamplerV2 as AerSampler
+        if self._disabled:
+            return {"status": "disabled", "stdout": ""}
 
-            backend = AerSimulator()
-            pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
-            return AerSampler(), pass_manager
+        h = self._headers()
+        run = requests.post(
+            f"{_XPYQ_BASE}/api/v1/compute/runs",
+            headers=h,
+            json={"code": code, "name": name},
+            timeout=10,
+        ).json()
+        run_id = run.get("run_id") or run.get("id")
+        if not run_id:
+            self._disabled = True
+            return {"status": "failed", "stdout": ""}
 
-    def _make_dataset(
-        self, col: pd.Series, horizon_days: int
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Sliding-window supervised dataset for one ticker.
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
+            r = requests.get(
+                f"{_XPYQ_BASE}/api/v1/compute/runs/{run_id}",
+                headers=h,
+                timeout=10,
+            ).json()
+            if r["status"] in ("completed", "failed", "timed_out", "cancelled"):
+                return r
+            time.sleep(self.poll_secs)
 
-        Returns X of shape (n_samples, feature_window) and y of shape (n_samples,)
-        where y=1 means the next horizon_days cumulative return was positive.
-        """
-        # Cap training history to avoid training on very old (irrelevant) data.
-        window_needed = self.lookback + self.feature_window + horizon_days
-        col = col.tail(window_needed)
-        vals = col.to_numpy(dtype=float)
-        n = len(vals)
+        return {"status": "timed_out", "stdout": ""}
 
-        X, y = [], []
-        for i in range(self.feature_window, n - horizon_days):
-            X.append(vals[i - self.feature_window : i])
-            future_ret = float(np.prod(1.0 + vals[i : i + horizon_days]) - 1.0)
-            y.append(1 if future_ret > 0.0 else 0)
-
-        return np.array(X, dtype=float), np.array(y, dtype=int)
-
-    def _train_vqc(self, X: np.ndarray, y: np.ndarray, sampler, pass_manager):
-        """
-        Scale features, build circuit, train VQC, return (vqc, scaler).
-
-        Features are rescaled to [0, π] so they work as rotation angles on the
-        ZZFeatureMap; the scaler must be retained for inference.
-        """
-        from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap
-        from qiskit_algorithms.optimizers import COBYLA
-        from qiskit_machine_learning.algorithms import VQC
-        from sklearn.preprocessing import MinMaxScaler
-
-        scaler = MinMaxScaler(feature_range=(0.0, float(np.pi)))
-        X_scaled = scaler.fit_transform(X)
-
-        n_features = X.shape[1]
-        feature_map = ZZFeatureMap(feature_dimension=n_features, reps=1)
-        ansatz = RealAmplitudes(num_qubits=n_features, reps=self.reps)
-        optimizer = COBYLA(maxiter=self.max_iter)
-
-        vqc = VQC(
-            feature_map=feature_map,
-            ansatz=ansatz,
-            optimizer=optimizer,
-            sampler=sampler,
-            pass_manager=pass_manager,
-        )
-        vqc.fit(X_scaled, y)
-        return vqc, scaler
+    @staticmethod
+    def _parse_json_stdout(stdout: str) -> dict:
+        for line in reversed(stdout.splitlines()):
+            line = line.strip()
+            if line.startswith("{") and line.endswith("}"):
+                return json.loads(line)
+        raise ValueError("xpyq stdout did not contain a JSON object")
 
     # ------------------------------------------------------------------
-    # Public interface (same signature as MomentumForecaster)
+    # Public interface
     # ------------------------------------------------------------------
 
     def predict(self, data: MarketData, as_of, horizon_days: int) -> Forecast:
-        returns = data.returns()
-        sampler, pass_manager = self._build_sampler()
+        self._stats["calls"] += 1
+        if self._disabled:
+            self._stats["fallbacks"] += 1
+            return self._fallback.predict(data, as_of, horizon_days)
 
-        expected_returns: dict[str, float] = {}
+        rets = data.returns().loc[:as_of].tail(self.lookback)
+
+        if len(rets) < horizon_days + 2:
+            self._stats["fallbacks"] += 1
+            return self._fallback.predict(data, as_of, horizon_days)
+
+        tickers = data.tickers
+        R_list = rets[tickers].values.astype(float).tolist()
+
+        # Code that runs on xpyq hardware
+        code = f"""
+import numpy as _np, json
+R = from_numpy(_np.array({R_list}, dtype=_np.float32))
+U_mat, S_mat, Vt_mat = linalg.svd(R)
+U_arr, S_arr, Vt_arr = U_mat.numpy()
+factor_scores = U_arr * S_arr          # (lookback x n_factors)
+ticker_vols = _np.array({[float(rets[t].std()) for t in tickers]})
+print(json.dumps({{
+    "factor_scores_col0": factor_scores[:, 0].tolist(),
+    "Vt_row0": Vt_arr[0].tolist(),
+    "ticker_vols": ticker_vols.tolist(),
+}}))
+"""
+
+        try:
+            result = self._run_code(code)
+            status = result.get("status", "unknown")
+            self._stats["status_counts"][status] = (
+                self._stats["status_counts"].get(status, 0) + 1
+            )
+            if result["status"] != "completed" or not result.get("stdout", "").strip():
+                if result["status"] in ("failed", "timed_out", "cancelled"):
+                    self._disabled = True
+                self._stats["fallbacks"] += 1
+                return self._fallback.predict(data, as_of, horizon_days)
+
+            out = self._parse_json_stdout(result["stdout"])
+            self._stats["xpyq_completed"] += 1
+        except Exception:
+            self._disabled = True
+            self._stats["fallbacks"] += 1
+            return self._fallback.predict(data, as_of, horizon_days)
+
+        factor_scores_col0 = np.array(out["factor_scores_col0"])
+        Vt_row0 = np.array(out["Vt_row0"])
+        ticker_vols = np.array(out["ticker_vols"])
+
+        factor_vol = float(factor_scores_col0.std()) + 1e-8
+        momentum = float(factor_scores_col0[-1] - factor_scores_col0[-horizon_days])
+
+        expected: dict[str, float] = {}
         direction: dict[str, int] = {}
         confidence: dict[str, float] = {}
 
-        for ticker in data.tickers:
-            col = returns[ticker].dropna().loc[:as_of]
+        for i, ticker in enumerate(tickers):
+            loading = float(Vt_row0[i])
+            signal = momentum * loading
+            scale = float(ticker_vols[i] * np.sqrt(horizon_days))
 
-            X, y = self._make_dataset(col, horizon_days)
-
-            # Need enough samples and at least one example of each class to train.
-            if len(X) < 10 or len(np.unique(y)) < 2:
-                direction[ticker] = 1
-                confidence[ticker] = 0.0
-                expected_returns[ticker] = 0.0
-                continue
-
-            vqc, scaler = self._train_vqc(X, y, sampler, pass_manager)
-
-            # Inference: most recent feature_window returns as the input vector.
-            recent = col.tail(self.feature_window).to_numpy(dtype=float)
-            if len(recent) < self.feature_window:
-                direction[ticker] = 1
-                confidence[ticker] = 0.0
-                expected_returns[ticker] = 0.0
-                continue
-
-            X_pred = scaler.transform(recent.reshape(1, -1))
-            # predict_proba returns shape (1, n_classes); index 1 == P(up).
-            prob = vqc.predict_proba(X_pred)[0]
-            p_up = float(prob[1])
-
-            dir_val: int = 1 if p_up >= 0.5 else -1
-            conf: float = p_up if p_up >= 0.5 else (1.0 - p_up)
-
-            direction[ticker] = dir_val
-            confidence[ticker] = conf
-            expected_returns[ticker] = dir_val * conf * self.scale
+            direction[ticker] = 1 if signal >= 0 else -1
+            confidence[ticker] = float(min(1.0, abs(momentum) / factor_vol))
+            expected[ticker] = float(signal * scale)
 
         return Forecast(
             as_of=pd.Timestamp(as_of),
             horizon_days=horizon_days,
-            expected_returns=expected_returns,
+            expected_returns=expected,
             direction=direction,
             confidence=confidence,
         )
 
-
-class ChronosForecaster:
-    """
-    Chronos pretrained transformer — SAME interface as MomentumForecaster.
-
-    Zero-shot: no training loop.  The pretrained Chronos-T5 model (downloaded
-    from HuggingFace on first use and cached locally) receives the raw return
-    series as context and returns a predictive distribution over the next
-    ``horizon_days`` steps.  The median of that distribution becomes
-    ``expected_returns``; the inter-sample spread drives ``confidence``.
-
-        expected_returns[t] = median predicted cumulative return  (signed)
-        direction[t]        = sign of the median  (+1 / -1)
-        confidence[t]       = min(1, |median| / std_of_samples)  (0..1)
-
-    Usage::
-
-        forecaster = ChronosForecaster()                            # tiny, CPU-friendly
-        forecaster = ChronosForecaster(model_name="amazon/chronos-t5-small")  # more accurate
-    """
-
-    def __init__(
-        self,
-        model_name: str = "amazon/chronos-t5-tiny",
-        context_len: int = 60,
-        num_samples: int = 20,
-        device: str = "cpu",
-    ) -> None:
-        self.model_name = model_name
-        self.context_len = context_len
-        self.num_samples = num_samples
-        self.device = device
-        self._pipeline = None   # lazy-loaded on first predict()
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _get_pipeline(self):
-        """Lazy-load the ChronosPipeline (downloads weights on first call)."""
-        if self._pipeline is None:
-            import torch
-            from chronos import ChronosPipeline
-
-            self._pipeline = ChronosPipeline.from_pretrained(
-                self.model_name,
-                device_map=self.device,
-                dtype=torch.float32,
-            )
-        return self._pipeline
-
-    # ------------------------------------------------------------------
-    # Public interface (same signature as MomentumForecaster)
-    # ------------------------------------------------------------------
-
-    def predict(self, data: MarketData, as_of, horizon_days: int) -> Forecast:
-        import torch
-
-        pipeline = self._get_pipeline()
-        returns = data.returns()
-
-        expected_returns: dict[str, float] = {}
-        direction: dict[str, int] = {}
-        confidence: dict[str, float] = {}
-
-        for ticker in data.tickers:
-            col = returns[ticker].dropna().loc[:as_of].tail(self.context_len)
-
-            if len(col) < 10:
-                direction[ticker] = 1
-                confidence[ticker] = 0.0
-                expected_returns[ticker] = 0.0
-                continue
-
-            context = torch.tensor(col.to_numpy(dtype=float), dtype=torch.float32)
-
-            # predict() returns a single samples tensor
-            # shape: (batch=1, num_samples, horizon_days)
-            forecast_samples = pipeline.predict(
-                context.unsqueeze(0),
-                prediction_length=horizon_days,
-                num_samples=self.num_samples,
-            )
-
-            # Compound each sample's per-step returns into a single horizon return.
-            sample_returns = (
-                (1.0 + forecast_samples[0]).prod(dim=-1) - 1.0
-            ).numpy()
-
-            pred = float(np.median(sample_returns))
-            spread = float(np.std(sample_returns))
-
-            dir_val: int = 1 if pred >= 0.0 else -1
-            conf: float = float(min(1.0, abs(pred) / (spread + 1e-9)))
-
-            direction[ticker] = dir_val
-            confidence[ticker] = conf
-            expected_returns[ticker] = pred
-
-        return Forecast(
-            as_of=pd.Timestamp(as_of),
-            horizon_days=horizon_days,
-            expected_returns=expected_returns,
-            direction=direction,
-            confidence=confidence,
-        )
+    def diagnostics(self) -> dict:
+        return {
+            "calls": self._stats["calls"],
+            "xpyq_completed": self._stats["xpyq_completed"],
+            "fallbacks": self._stats["fallbacks"],
+            "status_counts": dict(self._stats["status_counts"]),
+            "disabled": self._disabled,
+        }
