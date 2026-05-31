@@ -160,34 +160,56 @@ class ChaosEngine:
         self.reps = reps
         self.max_iter = max_iter
         self.ibm_token = ibm_token or os.getenv("IBM_QUANTUM_TOKEN")
-        self.ibm_instance = ibm_instance or os.getenv("IBM_QUANTUM_INSTANCE", "ibm-q/open/main")
+        self.ibm_instance = ibm_instance or os.getenv("IBM_QUANTUM_INSTANCE") or None
         self.ibm_backend = ibm_backend or os.getenv("IBM_QUANTUM_BACKEND")
-        self.ibm_channel = ibm_channel or os.getenv("IBM_QUANTUM_CHANNEL", "ibm_quantum")
+        self.ibm_channel = ibm_channel or os.getenv("IBM_QUANTUM_CHANNEL", "ibm_quantum_platform")
 
     # ------------------------------------------------------------------
     # Sampler primitive (IBM hardware or local Aer)
     # ------------------------------------------------------------------
 
     def _build_sampler(self):
+        """
+        Return (sampler, pass_manager) for the VQC.
+
+        LOCAL  (default): no IBM_QUANTUM_TOKEN set → uses local Aer simulator.
+        CLOUD           : set IBM_QUANTUM_TOKEN (and optionally IBM_QUANTUM_CHANNEL,
+                          IBM_QUANTUM_INSTANCE, IBM_QUANTUM_BACKEND) in .env or the
+                          environment to route jobs to real IBM Quantum hardware.
+        """
+        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+
         if self.ibm_token:
+            # ── CLOUD path ────────────────────────────────────────────────────
+            # Jobs are sent to IBM Quantum hardware.  Requires IBM_QUANTUM_TOKEN.
+            # Set IBM_QUANTUM_BACKEND to target a specific device, or leave blank
+            # to auto-select the least-busy operational backend.
             from qiskit_ibm_runtime import QiskitRuntimeService
             from qiskit_ibm_runtime import SamplerV2 as IBMSampler
 
             service = QiskitRuntimeService(
                 channel=self.ibm_channel,
                 token=self.ibm_token,
-                instance=self.ibm_instance,
+                **({"instance": self.ibm_instance} if self.ibm_instance else {}),
             )
             backend = (
                 service.backend(self.ibm_backend)
                 if self.ibm_backend
                 else service.least_busy(operational=True, simulator=False)
             )
-            return IBMSampler(mode=backend)
+            pass_manager = generate_preset_pass_manager(optimization_level=1, backend=backend)
+            return IBMSampler(mode=backend), pass_manager
         else:
+            # ── LOCAL path (default) ──────────────────────────────────────────
+            # Runs entirely on your CPU via Aer statevector simulation.
+            # No IBM account or network connection needed.
+            # To switch to cloud: add IBM_QUANTUM_TOKEN to your .env file.
+            from qiskit_aer import AerSimulator
             from qiskit_aer.primitives import SamplerV2 as AerSampler
 
-            return AerSampler()
+            backend = AerSimulator()
+            pass_manager = generate_preset_pass_manager(optimization_level=0, backend=backend)
+            return AerSampler(), pass_manager
 
     # ------------------------------------------------------------------
     # Feature engineering
@@ -255,7 +277,7 @@ class ChaosEngine:
     # VQC training
     # ------------------------------------------------------------------
 
-    def _train_vqc(self, X: np.ndarray, y: np.ndarray, sampler):
+    def _train_vqc(self, X: np.ndarray, y: np.ndarray, sampler, pass_manager):
         from qiskit.circuit.library import RealAmplitudes, ZZFeatureMap
         from qiskit_algorithms.optimizers import COBYLA
         from qiskit_machine_learning.algorithms import VQC
@@ -274,6 +296,7 @@ class ChaosEngine:
             ansatz=ansatz,
             optimizer=optimizer,
             sampler=sampler,
+            pass_manager=pass_manager,   # transpiles ZZFeatureMap into native gates
         )
         vqc.fit(X_scaled, y)
         return vqc, scaler
@@ -393,8 +416,8 @@ class ChaosEngine:
         if len(X) < 10 or len(np.unique(y)) < 2:
             return _fallback()
 
-        sampler = self._build_sampler()
-        vqc, scaler = self._train_vqc(X, y, sampler)
+        sampler, pass_manager = self._build_sampler()
+        vqc, scaler = self._train_vqc(X, y, sampler, pass_manager)
 
         # Inference: current feature vector
         feat_now = feat_df.iloc[-1].to_numpy(dtype=float)
