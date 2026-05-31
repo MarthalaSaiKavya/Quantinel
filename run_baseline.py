@@ -9,25 +9,24 @@ Nothing else moves.
 
 Run:  python run_baseline.py
 """
-
+from dotenv import load_dotenv
+load_dotenv()  # loads IBM_QUANTUM_TOKEN etc. from .env before any imports use them
 from backtest import Backtest
 from data import MockDataSource
 from execute import PaperExecutor
-from forecast import MomentumForecaster
-from news import MockNewsSource
-from optimize import MeanVarianceOptimizer
+from forecast import ChronosForecaster, QuantumForecaster
+from optimize import MeanVarianceOptimizer, QaoaOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
 
 
 def main():
     bt = Backtest(
-        source=MockDataSource(),  # Layer 1 · Data
-        news_source=MockNewsSource(),  # Layer 1 · News
-        forecaster=MomentumForecaster(),  # Layer 2 · Forecast
-        risk=SampleCovRisk(),  # Layer 3 · Risk
-        optimizer=MeanVarianceOptimizer(),  # Layer 4 · Pick & size
-        executor=PaperExecutor(),  # Layer 5 · Execute
+        source=MockDataSource(),              # Layer 1 · Data
+        forecaster=QuantumForecaster(),      # Layer 2 · Forecast   <-- swap QuantumForecaster() here
+        risk=SampleCovRisk(),                 # Layer 3 · Risk
+        optimizer=MeanVarianceOptimizer(),    # Layer 4 · Pick & size <-- swap QaoaOptimizer() here
+        executor=PaperExecutor(),             # Layer 5 · Execute
     )
     data, records, baseline = bt.run()
     card = BacktestScorer().score(records, baseline)  # Layer 6 · Score
