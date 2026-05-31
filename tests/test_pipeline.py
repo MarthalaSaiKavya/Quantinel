@@ -464,3 +464,362 @@ def test_baseline_runs_with_news_and_risk_report(capsys):
     for sa in report.sub_agent_reports:
         print(f"  {sa.agent_label:12s} breach rate: {sa.var_breach_rate:.3f}")
     print("=" * 52)
+
+
+# ============================================================================
+# SLICE 8: ChaosEngine — classical fallback (no xpyq key required)
+# ============================================================================
+
+
+def _make_chaos_fixtures(seed: int = 42, n_days: int = 252):
+    """Return (data, news, as_of) with enough history for ChaosEngine."""
+    data = MockDataSource(seed=seed, n_days=n_days).load()
+    as_of = data.bars["NVDA"].index[-1]
+    window = data.slice_until(as_of)
+    news = _make_mock_news(window.tickers, as_of, sentiment=0.0)
+    return window, news, as_of
+
+
+def test_chaos_engine_returns_chaos_signal():
+    """ChaosEngine.evaluate() returns a well-formed ChaosSignal (classical fallback)."""
+    from chaos import ChaosEngine
+    from contracts import ChaosSignal
+
+    window, news, as_of = _make_chaos_fixtures()
+    # No api_key → forces classical centroid-distance path
+    engine = ChaosEngine(api_key="")
+    signal = engine.evaluate(window, news, as_of)
+
+    assert isinstance(signal, ChaosSignal)
+    assert 0.0 <= signal.crash_probability <= 1.0
+    assert 0.0 <= signal.confidence <= 1.0
+    assert signal.event_label in ("normal", "elevated_risk", "market_crash", "unknown")
+    assert set(signal.ticker_adjustments.keys()) == set(window.tickers)
+    assert isinstance(signal.reasoning, str) and len(signal.reasoning) > 0
+
+
+def test_chaos_engine_negative_news_raises_crash_prob():
+    """Strongly negative news produces a higher crash probability than neutral news."""
+    from chaos import ChaosEngine
+
+    window, _, as_of = _make_chaos_fixtures()
+    engine = ChaosEngine(api_key="")
+
+    neutral  = _make_mock_news(window.tickers, as_of, sentiment=0.0)
+    negative = _make_mock_news(window.tickers, as_of, sentiment=-0.9)
+
+    p_neutral  = engine.evaluate(window, neutral,  as_of).crash_probability
+    p_negative = engine.evaluate(window, negative, as_of).crash_probability
+
+    assert p_negative >= p_neutral, (
+        f"Expected negative news to raise crash_probability: "
+        f"neutral={p_neutral:.3f}, negative={p_negative:.3f}"
+    )
+
+
+def test_chaos_engine_positive_news_lowers_crash_prob():
+    """Positive news produces a lower crash probability than neutral news."""
+    from chaos import ChaosEngine
+
+    window, _, as_of = _make_chaos_fixtures()
+    engine = ChaosEngine(api_key="")
+
+    neutral  = _make_mock_news(window.tickers, as_of, sentiment=0.0)
+    positive = _make_mock_news(window.tickers, as_of, sentiment=0.8)
+
+    p_neutral  = engine.evaluate(window, neutral,  as_of).crash_probability
+    p_positive = engine.evaluate(window, positive, as_of).crash_probability
+
+    assert p_positive <= p_neutral, (
+        f"Expected positive news to lower crash_probability: "
+        f"neutral={p_neutral:.3f}, positive={p_positive:.3f}"
+    )
+
+
+def test_chaos_engine_adjust_forecast_high_prob_flips_direction():
+    """adjust_forecast() flips direction to -1 when crash_probability >= 0.65."""
+    from chaos import ChaosEngine
+    from contracts import ChaosSignal, Forecast
+
+    engine = ChaosEngine(api_key="")
+    as_of = pd.Timestamp("2025-01-10")
+
+    signal = ChaosSignal(
+        as_of=as_of,
+        crash_probability=0.80,
+        event_label="market_crash",
+        confidence=0.60,
+        ticker_adjustments={"NVDA": -0.80, "GOOG": -0.80},
+        reasoning="test",
+    )
+    forecast = Forecast(
+        as_of=as_of,
+        horizon_days=5,
+        expected_returns={"NVDA": 0.05, "GOOG": 0.03},
+        direction={"NVDA": 1, "GOOG": 1},
+        confidence={"NVDA": 0.7, "GOOG": 0.6},
+    )
+
+    adjusted = engine.adjust_forecast(forecast, signal)
+
+    for t in ["NVDA", "GOOG"]:
+        assert adjusted.direction[t] == -1, f"{t} direction should be flipped to -1"
+        assert adjusted.expected_returns[t] < 0, f"{t} expected_return should be negative"
+
+
+def test_chaos_engine_adjust_forecast_moderate_prob_dampens():
+    """adjust_forecast() dampens (but does not flip) at moderate crash probability."""
+    from chaos import ChaosEngine
+    from contracts import ChaosSignal, Forecast
+
+    engine = ChaosEngine(api_key="")
+    as_of = pd.Timestamp("2025-01-10")
+
+    signal = ChaosSignal(
+        as_of=as_of,
+        crash_probability=0.50,
+        event_label="elevated_risk",
+        confidence=0.40,
+        ticker_adjustments={"NVDA": 0.40, "GOOG": 0.40},
+        reasoning="test",
+    )
+    forecast = Forecast(
+        as_of=as_of,
+        horizon_days=5,
+        expected_returns={"NVDA": 0.05, "GOOG": 0.03},
+        direction={"NVDA": 1, "GOOG": 1},
+        confidence={"NVDA": 0.7, "GOOG": 0.6},
+    )
+
+    adjusted = engine.adjust_forecast(forecast, signal)
+
+    for t in ["NVDA", "GOOG"]:
+        assert adjusted.direction[t] == 1, f"{t} direction should stay positive"
+        assert adjusted.expected_returns[t] < forecast.expected_returns[t], (
+            f"{t} expected_return should be dampened"
+        )
+
+
+def test_chaos_engine_low_prob_leaves_forecast_unchanged():
+    """adjust_forecast() is a no-op when crash_probability < 0.40."""
+    from chaos import ChaosEngine
+    from contracts import ChaosSignal, Forecast
+
+    engine = ChaosEngine(api_key="")
+    as_of = pd.Timestamp("2025-01-10")
+
+    signal = ChaosSignal(
+        as_of=as_of,
+        crash_probability=0.20,
+        event_label="normal",
+        confidence=0.60,
+        ticker_adjustments={"NVDA": 1.0, "GOOG": 1.0},
+        reasoning="test",
+    )
+    forecast = Forecast(
+        as_of=as_of,
+        horizon_days=5,
+        expected_returns={"NVDA": 0.05, "GOOG": 0.03},
+        direction={"NVDA": 1, "GOOG": 1},
+        confidence={"NVDA": 0.7, "GOOG": 0.6},
+    )
+
+    adjusted = engine.adjust_forecast(forecast, signal)
+
+    assert adjusted is forecast  # identical object — no copy made
+
+
+def test_chaos_engine_insufficient_history_returns_fallback():
+    """ChaosEngine returns a sentiment-only fallback when history < 25 samples."""
+    from chaos import ChaosEngine
+
+    # Only 30 days — not enough to build the crash-label dataset
+    data = MockDataSource(seed=42, n_days=30).load()
+    as_of = data.bars["NVDA"].index[-1]
+    window = data.slice_until(as_of)
+    news = _make_mock_news(window.tickers, as_of, sentiment=0.0)
+
+    engine = ChaosEngine(api_key="")
+    signal = engine.evaluate(window, news, as_of)
+
+    assert signal.event_label == "unknown"
+    assert signal.confidence == 0.0
+
+
+# ============================================================================
+# SLICE 9: CrystalBall — signal detection, backcasting, Two Curves
+# ============================================================================
+
+
+def test_crystal_ball_predict_1year_default():
+    """CrystalBall.predict() returns a CrystalBallPrediction with the 1-year horizon."""
+    from chaos import ChaosEngine
+    from contracts import CrystalBallPrediction
+    from forecast import CrystalBall, MomentumForecaster
+
+    window, news, as_of = _make_chaos_fixtures()
+    engine = ChaosEngine(api_key="")
+    cb = CrystalBall(MomentumForecaster(), engine)
+
+    pred = cb.predict(window, news, as_of)
+
+    assert isinstance(pred, CrystalBallPrediction)
+    assert pred.horizon_days == 252
+    for t in window.tickers:
+        assert t in pred.base_returns
+        assert t in pred.bull_returns
+        assert t in pred.bear_returns
+        assert t in pred.crash_adjusted_returns
+        assert t in pred.annual_volatility
+        assert 0.0 <= pred.confidence[t] <= 1.0
+    assert 0.0 <= pred.crash_probability <= 1.0
+    assert pred.dominant_factor_var >= 0.0
+
+
+def test_crystal_ball_predict_2year_horizon():
+    """CrystalBall.predict() with TWO_YEAR_DAYS returns horizon_days=504."""
+    from chaos import ChaosEngine
+    from forecast import CrystalBall, MomentumForecaster
+
+    window, news, as_of = _make_chaos_fixtures()
+    engine = ChaosEngine(api_key="")
+    cb = CrystalBall(MomentumForecaster(), engine)
+
+    pred = cb.predict(window, news, as_of, horizon_days=CrystalBall.TWO_YEAR_DAYS)
+
+    assert pred.horizon_days == 504
+
+
+def test_crystal_ball_2year_base_larger_than_1year():
+    """2-year compounded base return is larger in magnitude than the 1-year base return."""
+    from chaos import ChaosEngine
+    from forecast import CrystalBall, MomentumForecaster
+
+    window, news, as_of = _make_chaos_fixtures()
+    engine = ChaosEngine(api_key="")
+    cb = CrystalBall(MomentumForecaster(), engine)
+
+    pred_1y = cb.predict(window, news, as_of)
+    pred_2y = cb.predict(window, news, as_of, horizon_days=CrystalBall.TWO_YEAR_DAYS)
+
+    for t in window.tickers:
+        assert abs(pred_2y.base_returns[t]) >= abs(pred_1y.base_returns[t]), (
+            f"{t}: 2-year base ({pred_2y.base_returns[t]:+.4f}) should have "
+            f"larger magnitude than 1-year base ({pred_1y.base_returns[t]:+.4f})"
+        )
+
+
+def test_crystal_ball_bull_above_base_above_bear():
+    """bull_return > base_return > bear_return for every ticker."""
+    from chaos import ChaosEngine
+    from forecast import CrystalBall, MomentumForecaster
+
+    window, news, as_of = _make_chaos_fixtures()
+    engine = ChaosEngine(api_key="")
+    cb = CrystalBall(MomentumForecaster(), engine)
+    pred = cb.predict(window, news, as_of)
+
+    for t in window.tickers:
+        assert pred.bull_returns[t] > pred.base_returns[t], f"{t}: bull <= base"
+        assert pred.base_returns[t] > pred.bear_returns[t], f"{t}: base <= bear"
+
+
+def test_crystal_ball_reasoning_contains_all_sections():
+    """reasoning string contains the three IFTF principle section headers."""
+    from chaos import ChaosEngine
+    from forecast import CrystalBall, MomentumForecaster
+
+    window, news, as_of = _make_chaos_fixtures()
+    engine = ChaosEngine(api_key="")
+    cb = CrystalBall(MomentumForecaster(), engine)
+    pred = cb.predict(window, news, as_of)
+
+    assert "PRINCIPLE 2" in pred.reasoning
+    assert "PRINCIPLE 3" in pred.reasoning
+    assert "PRINCIPLE 4" in pred.reasoning
+    assert "SCENARIO PROJECTIONS" in pred.reasoning
+
+
+def test_crystal_ball_reasoning_labels_horizon():
+    """reasoning string says '1-YEAR' for default and '2-YEAR' for TWO_YEAR_DAYS."""
+    from chaos import ChaosEngine
+    from forecast import CrystalBall, MomentumForecaster
+
+    window, news, as_of = _make_chaos_fixtures()
+    engine = ChaosEngine(api_key="")
+    cb = CrystalBall(MomentumForecaster(), engine)
+
+    pred_1y = cb.predict(window, news, as_of)
+    pred_2y = cb.predict(window, news, as_of, horizon_days=CrystalBall.TWO_YEAR_DAYS)
+
+    assert "1-YEAR" in pred_1y.reasoning
+    assert "2-YEAR" in pred_2y.reasoning
+
+
+def test_detect_signals_returns_dict_for_all_tickers():
+    """_detect_signals returns a key for every ticker, even with no signals fired."""
+    from forecast import CrystalBall
+
+    window, news, as_of = _make_chaos_fixtures()
+    rets = window.returns().loc[:as_of]
+
+    signals = CrystalBall._detect_signals(rets, window.tickers)
+
+    assert set(signals.keys()) == set(window.tickers)
+    for t, sigs in signals.items():
+        assert isinstance(sigs, list)
+
+
+def test_backcast_regimes_returns_required_keys():
+    """_backcast_regimes always returns the four required keys."""
+    from forecast import CrystalBall
+
+    window, news, as_of = _make_chaos_fixtures()
+    rets = window.returns().loc[:as_of]
+
+    result = CrystalBall._backcast_regimes(rets, window.tickers)
+
+    assert "analog_count" in result
+    assert "median_fwd_return" in result
+    assert "pct_positive" in result
+    assert "regime_label" in result
+    if result["analog_count"] > 0:
+        assert 0.0 <= result["pct_positive"] <= 1.0
+
+
+def test_backcast_regimes_insufficient_history():
+    """_backcast_regimes gracefully handles < 40 rows of history."""
+    from forecast import CrystalBall
+
+    data = MockDataSource(seed=42, n_days=30).load()
+    as_of = data.bars["NVDA"].index[-1]
+    window = data.slice_until(as_of)
+    rets = window.returns().loc[:as_of]
+
+    result = CrystalBall._backcast_regimes(rets, window.tickers)
+
+    assert result["analog_count"] == 0
+    assert "insufficient" in result["regime_label"]
+
+
+def test_two_curves_classify_returns_valid_labels():
+    """_two_curves_classify returns a valid label for every ticker."""
+    from forecast import CrystalBall
+
+    window, news, as_of = _make_chaos_fixtures()
+    rets = window.returns().loc[:as_of]
+
+    valid_labels = {
+        "first_curve_ascending",
+        "first_curve_peak",
+        "first_curve_declining",
+        "second_curve_emerging",
+        "transition",
+        "indeterminate",
+    }
+
+    result = CrystalBall._two_curves_classify(rets, window.tickers)
+
+    assert set(result.keys()) == set(window.tickers)
+    for t, label in result.items():
+        assert label in valid_labels, f"{t}: unexpected label '{label}'"
