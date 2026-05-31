@@ -18,12 +18,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from backtest import Backtest
-from data import MockDataSource
+from data import YFinanceDataSource
 from execute import PaperExecutor
 from forecast import MomentumForecaster, QuantumForecaster
 from intelligence import MarketIntelligenceAgent
 from master_agent import MasterAgent
-from news import MockNewsSource
+from news import ExaNewsSource, MockNewsSource
 from optimize import MeanVarianceOptimizer, QaoaOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
@@ -33,7 +33,7 @@ EXA_KEY = os.environ.get("EXA_KEY", "")
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
 XPYQ_TIMEOUT = float(os.environ.get("XPYQ_TIMEOUT", "20"))
 RISK_N_PATHS = int(os.environ.get("QUANTINEL_N_PATHS", "10000"))
-N_DAYS = int(os.environ.get("QUANTINEL_N_DAYS", "504"))
+START = os.environ.get("QUANTINEL_START", "2023-01-01")
 REBALANCE_EVERY = int(os.environ.get("QUANTINEL_REBALANCE_EVERY", "5"))
 
 
@@ -52,8 +52,8 @@ class PipelineResult:
 def run_pipeline(name, label, forecaster, optimizer) -> PipelineResult:
     print(f"Starting {name} simulation: {label}")
     bt = Backtest(
-        source=MockDataSource(n_days=N_DAYS),
-        news_source=MockNewsSource(),
+        source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start=START),
+        news_source=ExaNewsSource(api_key=EXA_KEY) if EXA_KEY else MockNewsSource(),
         forecaster=forecaster,
         risk=SampleCovRisk(n_paths=RISK_N_PATHS),
         optimizer=optimizer,
@@ -143,7 +143,7 @@ def build_trace(normal: dict, quantum: dict) -> tuple[dict, list[str]]:
     }
 
     trace = [
-        "Both simulations used the same mock NVDA/GOOG market data, news source, risk model, executor, and scorer.",
+        "Both simulations used the same real NVDA/GOOG market data (yfinance), news source, risk model, executor, and scorer.",
         (
             f"Normal returned {normal['total_return_pct']:.2f}% while quantum returned "
             f"{quantum['total_return_pct']:.2f}%, a quantum-minus-normal gap of "
