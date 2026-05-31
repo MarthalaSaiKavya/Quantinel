@@ -11,9 +11,14 @@ Run:
   set -a; source .env; set +a
   .venv/bin/uvicorn api:app --reload --port 8000
 """
+
 from __future__ import annotations
 
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
