@@ -21,9 +21,9 @@ from backtest import Backtest
 from data import YFinanceDataSource
 from execute import PaperExecutor
 from forecast import MomentumForecaster, QuantumForecaster
-from intelligence import MarketIntelligenceAgent
+from intelligence import intelligence_from_news_source
 from master_agent import MasterAgent
-from news import ExaNewsSource, MockNewsSource
+from news import make_news_source
 from optimize import MeanVarianceOptimizer, QaoaOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
@@ -31,7 +31,7 @@ from score import BacktestScorer, RiskScorer
 XPYQ_KEY = os.environ.get("XPYQ_KEY", "")
 EXA_KEY = os.environ.get("EXA_KEY", "")
 OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY", "")
-XPYQ_TIMEOUT = float(os.environ.get("XPYQ_TIMEOUT", "20"))
+XPYQ_TIMEOUT = float(os.environ.get("XPYQ_TIMEOUT", "60"))
 RISK_N_PATHS = int(os.environ.get("QUANTINEL_N_PATHS", "10000"))
 START = os.environ.get("QUANTINEL_START", "2023-01-01")
 REBALANCE_EVERY = int(os.environ.get("QUANTINEL_REBALANCE_EVERY", "5"))
@@ -49,16 +49,26 @@ class PipelineResult:
     engine_diagnostics: dict
 
 
-def run_pipeline(name, label, forecaster, optimizer) -> PipelineResult:
+def run_pipeline(
+    name,
+    label,
+    forecaster,
+    optimizer,
+    *,
+    n_days: int | None = None,
+    rebalance_every: int | None = None,
+    risk_n_paths: int | None = None,
+    news_source=None,
+) -> PipelineResult:
     print(f"Starting {name} simulation: {label}")
     bt = Backtest(
         source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start=START),
-        news_source=ExaNewsSource(api_key=EXA_KEY) if EXA_KEY else MockNewsSource(),
+        news_source=news_source or make_news_source(EXA_KEY),
         forecaster=forecaster,
-        risk=SampleCovRisk(n_paths=RISK_N_PATHS),
+        risk=SampleCovRisk(n_paths=risk_n_paths if risk_n_paths is not None else RISK_N_PATHS),
         optimizer=optimizer,
         executor=PaperExecutor(),
-        rebalance_every=REBALANCE_EVERY,
+        rebalance_every=rebalance_every if rebalance_every is not None else REBALANCE_EVERY,
     )
     data, records, baseline = bt.run()
     scorecard = BacktestScorer().score(records, baseline)
@@ -201,8 +211,17 @@ def main():
     else:
         print("(XPYQ_KEY is missing, so the quantum branch will use local fallbacks)")
 
+    news_source = make_news_source(EXA_KEY)
+    if EXA_KEY:
+        print("(using Exa API for news during backtest and intelligence feed)")
+    else:
+        print("(EXA_KEY is missing, falling back to MockNewsSource)")
+
     with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(run_pipeline, *job) for job in (normal_job, quantum_job)]
+        futures = [
+            pool.submit(run_pipeline, *job, news_source=news_source)
+            for job in (normal_job, quantum_job)
+        ]
         results = [future.result() for future in futures]
 
     by_name = {result.name: result for result in results}
@@ -210,9 +229,13 @@ def main():
     quantum = summarize(by_name["quantum"])
     metric_deltas, decision_trace = build_trace(normal, quantum)
 
-    print("\nFetching market intelligence from Exa...")
-    intel = MarketIntelligenceAgent(api_key=EXA_KEY).fetch(by_name["normal"].data.tickers)
-    print("Intelligence fetched.")
+    print("\nBuilding market intelligence from Exa news...")
+    intel = intelligence_from_news_source(
+        news_source,
+        by_name["normal"].data.tickers,
+        as_of=by_name["normal"].records[-1].as_of,
+    )
+    print("Intelligence ready.")
 
     print("\nSending both simulations to final agent...")
     report = MasterAgent(openrouter_key=OPENROUTER_KEY).compare(

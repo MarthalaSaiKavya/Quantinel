@@ -13,7 +13,7 @@ from backtest import Backtest
 from data import YFinanceDataSource
 from execute import PaperExecutor
 from forecast import MomentumForecaster, QuantumForecaster
-from news import ExaNewsSource, MockNewsSource
+from news import make_news_source
 from optimize import MeanVarianceOptimizer, QaoaOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
@@ -29,7 +29,7 @@ REBALANCE_EVERY = int(os.environ.get("QUANTINEL_REBALANCE_EVERY", "5"))
 def run(forecaster, optimizer, label):
     bt = Backtest(
         source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start=START),
-        news_source=ExaNewsSource(api_key=EXA_KEY) if EXA_KEY else MockNewsSource(),
+        news_source=make_news_source(EXA_KEY),
         forecaster=forecaster,
         risk=SampleCovRisk(n_paths=RISK_N_PATHS),
         optimizer=optimizer,

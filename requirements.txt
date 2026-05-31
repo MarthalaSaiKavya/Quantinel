@@ -4,3 +4,5 @@ requests
 exa-py
 scikit-learn
 yfinance>=0.2.40
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0

@@ -16,7 +16,7 @@ from backtest import Backtest
 from data import YFinanceDataSource
 from execute import PaperExecutor
 from forecast import MomentumForecaster
-from news import ExaNewsSource, MockNewsSource
+from news import make_news_source
 from optimize import MeanVarianceOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
@@ -27,8 +27,8 @@ EXA_KEY = os.environ.get("EXA_KEY", "")
 
 def main():
     bt = Backtest(
-        source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start=START),  # Layer 1 · Data
-        news_source=ExaNewsSource(api_key=EXA_KEY) if EXA_KEY else MockNewsSource(),
+        source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start=START),
+        news_source=make_news_source(EXA_KEY),
         forecaster=MomentumForecaster(),  # Layer 2 · Forecast
         risk=SampleCovRisk(),  # Layer 3 · Risk
         optimizer=MeanVarianceOptimizer(),  # Layer 4 · Pick & size
