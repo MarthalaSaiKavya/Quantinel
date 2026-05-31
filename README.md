@@ -129,6 +129,7 @@ set -a; source .env; set +a; .venv/bin/python run_quantum.py
 | News | `news.py` | `MockNewsSource` during backtest | same | `NewsFeed` |
 | Forecast | `forecast.py` | `MomentumForecaster` | `QuantumForecaster` | `Forecast` |
 | Chaos Engine | `chaos.py` | `ChaosEngine` (optional) | same | `ChaosSignal` |
+| Crystal Ball | `forecast.py` | `CrystalBall` (optional) | same | `CrystalBallPrediction` |
 | Risk | `risk.py` | `SampleCovRisk` | same | `RiskModel` |
 | Optimize | `optimize.py` | `MeanVarianceOptimizer` | `QaoaOptimizer` | `TargetPortfolio` |
 | Execute | `execute.py` | `PaperExecutor` | same | `ExecutionResult` |
@@ -138,6 +139,48 @@ set -a; source .env; set +a; .venv/bin/python run_quantum.py
 
 The layer boundaries are defined in `contracts.py`. Each branch must return the
 same contract objects, which is what makes the comparison fair.
+
+## Crystal Ball
+
+`CrystalBall` (Layer 2.6, in `forecast.py`) is a 1-year scenario forecaster that
+fuses two signals produced earlier in the pipeline:
+
+- A short-horizon **`Forecast`** from any `Forecaster` (momentum or quantum SVD).
+- A **`ChaosSignal`** from `ChaosEngine`, carrying crash probability and per-ticker
+  weight multipliers.
+
+It uses the same xpyq quantum path as both `ChaosEngine` and `QuantumForecaster`:
+it submits the returns covariance matrix to xpyq `linalg.eig` and uses the
+returned eigenvalues as factor variances for a 1-year projection.
+
+### How Crystal Ball works
+
+1. **Short-horizon forecast** — calls the underlying `Forecaster` for a 5-day expected
+   return per ticker.
+2. **ChaosEngine** — evaluates current tail risk and produces a `ChaosSignal`.
+3. **Eigendecomposition** — builds the returns covariance matrix and submits it to
+   xpyq `linalg.eig`. The eigenvalues are sorted descending; the leading eigenvalue
+   × 252 is the dominant factor variance (a measure of market-wide co-movement).
+4. **Annual vol per ticker** — derived from the factor model:
+   `vol_i = sqrt(sum_k  loading_ik^2 * eigenvalue_k * 252)`.
+5. **Compound to 1 year** — `base = (1 + daily_exp)^252 − 1` per ticker.
+6. **Scenarios** — three return paths per ticker:
+
+| Scenario | Formula |
+|---|---|
+| `bull` | `base + 1.5 × annual_vol` |
+| `base` | compounded expected return |
+| `bear` | `base − 1.5 × annual_vol` |
+| `crash_adjusted` | `base × ChaosSignal.ticker_adjustments[ticker]` |
+
+7. **Reasoning string** — a plain-English narrative combining the risk regime,
+   crash probability, dominant factor variance, and per-ticker scenario bounds.
+
+Falls back to `numpy.linalg.eigh` (classical, symmetric, numerically stable)
+when `XPYQ_KEY` is not set or the API is unreachable.
+
+`CrystalBallPrediction` is intended for reporting and external consumers; it is
+not wired into the backtest loop.
 
 ## Chaos Engine
 

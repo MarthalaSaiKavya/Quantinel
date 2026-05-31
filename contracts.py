@@ -91,6 +91,35 @@ class Forecast:
 
 
 @dataclass(frozen=True)
+class ChaosSignal:
+    """OUTPUT of ChaosEngine (Layer 2.5).  Optionally consumed by Forecast and Optimizer."""
+
+    as_of: pd.Timestamp
+    crash_probability: float          # [0, 1] — blended tail-event estimate
+    event_label: str                  # "normal" / "elevated_risk" / "market_crash"
+    confidence: float                 # [0, 1] — how far probability is from 0.5 × 2
+    ticker_adjustments: dict[str, float]  # per-ticker weight multipliers
+    reasoning: str                    # plain-English explanation
+
+
+@dataclass(frozen=True)
+class CrystalBallPrediction:
+    """OUTPUT of CrystalBall.  1-year scenario forecast fusing Forecast and ChaosSignal."""
+
+    as_of: pd.Timestamp
+    horizon_days: int                           # 252 = ~1 trading year
+    base_returns: dict[str, float]              # compounded central estimate
+    bull_returns: dict[str, float]              # base + 1.5 × annual_vol
+    bear_returns: dict[str, float]              # base − 1.5 × annual_vol
+    crash_adjusted_returns: dict[str, float]    # base scaled by chaos ticker_adjustments
+    annual_volatility: dict[str, float]         # per-ticker annualised vol (from factor model)
+    crash_probability: float                    # from ChaosEngine
+    dominant_factor_var: float                  # leading eigenvalue × 252 (market factor strength)
+    confidence: dict[str, float]                # per-ticker, inherited from short-horizon Forecast
+    reasoning: str                              # plain-English scenario summary
+
+
+@dataclass(frozen=True)
 class PerSubAgentRisk:
     """VaR/CVaR from a single risk sub-agent (GBM, Markov, bootstrap)."""
 

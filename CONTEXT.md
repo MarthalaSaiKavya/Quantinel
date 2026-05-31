@@ -12,6 +12,7 @@ glossary, not a spec. No implementation details live here.
 | 1 | Data | Fetch price bars and news articles. Produce `MarketData` and `NewsFeed`. |
 | 2 | Forecast | Predict future returns from price history. Produce `Forecast`. |
 | 2.5 | Chaos Engine | Detect tail-risk events by fusing market features with news sentiment. Produce `ChaosSignal`. |
+| 2.6 | Crystal Ball | Fuse a short-horizon `Forecast` with a `ChaosSignal` to produce a 1-year scenario prediction. Produce `CrystalBallPrediction`. |
 | 3 | Risk | Estimate risk from prices, news, and the forecast. Produce `RiskModel`. |
 | 4 | Pick & Size | Convert forecast and risk into target weights. Produce `TargetPortfolio`. |
 | 5 | Execute | Turn target weights into fills. Produce `ExecutionResult`. |
@@ -31,6 +32,20 @@ The output of the Chaos Engine (Layer 2.5). Contains:
 
 Produced by Layer 2.5. Consumed optionally by Forecast (to dampen/flip signals) and
 by the Optimizer (to scale or short positions).
+
+### CrystalBallPrediction
+The output of Crystal Ball (Layer 2.6). Contains:
+- `base_returns`: per-ticker compounded expected return over ~1 trading year (252 days).
+- `bull_returns`: optimistic scenario — `base + 1.5 × annual_vol`.
+- `bear_returns`: pessimistic scenario — `base − 1.5 × annual_vol`.
+- `crash_adjusted_returns`: base returns scaled by the `ChaosSignal.ticker_adjustments` multipliers.
+- `annual_volatility`: per-ticker annualised volatility derived from the factor model (leading eigenvalues × 252).
+- `crash_probability`: forwarded from the `ChaosSignal`.
+- `dominant_factor_var`: leading eigenvalue × 252 — the annualised variance of the strongest market-wide factor.
+- `confidence`: per-ticker, inherited from the short-horizon `Forecast`.
+- `reasoning`: plain-English scenario summary combining forecast signals, crash probability, and scenario bounds.
+
+Produced by Layer 2.6. Intended for external reporting and decision support; not consumed by downstream pipeline layers.
 
 ### Crash Probability
 A float in [0, 1] output by the Chaos Engine representing the estimated likelihood
@@ -116,6 +131,9 @@ NewsFeed ──► Chaos Engine (Layer 2.5) ── news sentiment boost
 MarketData ──► Chaos Engine (Layer 2.5) ── market feature extraction
 ChaosSignal ──► Forecast (Layer 2) ── optional dampen / flip
              ──► Optimizer (Layer 4) ── optional position scaling / shorting
+             ──► Crystal Ball (Layer 2.6) ── crash-adjusted scenario returns
+Forecast ──► Crystal Ball (Layer 2.6) ── compounded base return
+CrystalBallPrediction ──► (reporting / external consumers)
 NewsFeed ──► Risk (Layer 3) ── Markov regime transitions
 MarketData ──► Forecast (Layer 2) ──► Risk (Layer 3)
                                     ──► Optimizer (Layer 4)
