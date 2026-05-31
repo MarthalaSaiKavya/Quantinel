@@ -24,12 +24,12 @@ MarketData     Forecast        RiskModel     TargetPortfolio  ExecutionResult Sc
 
 | Layer | Owner | Consumes | Produces | Interface (in `contracts.py`) |
 |-------|-------|----------|----------|-------------------------------|
-| 1 · Data | A | — | `MarketData` | `DataSource.load()` |
-| 2 · Forecast | B | `MarketData` | `Forecast` | `Forecaster.predict()` |
-| 3 · Risk | C | `MarketData` | `RiskModel` | `RiskEstimator.estimate()` |
-| 4 · Pick & size | C | `Forecast`, `RiskModel` | `TargetPortfolio` | `Optimizer.solve()` |
-| 5 · Execute | D | `TargetPortfolio`, `MarketData` | `ExecutionResult` | `Executor.execute()` |
-| 6 · Score | D | step records + baseline | `Scorecard` | `BacktestScorer.score()` |
+| 1 · Data | Rahul | — | `MarketData` | `DataSource.load()` |
+| 2 · Forecast | Garrett | `MarketData` | `Forecast` | `Forecaster.predict()` |
+| 3 · Risk | Peyton | `MarketData` | `RiskModel` | `RiskEstimator.estimate()` |
+| 4 · Pick & size | Peyton | `Forecast`, `RiskModel` | `TargetPortfolio` | `Optimizer.solve()` |
+| 5 · Execute | Adi | `TargetPortfolio`, `MarketData` | `ExecutionResult` | `Executor.execute()` |
+| 6 · Score | Adi | step records + baseline | `Scorecard` | `BacktestScorer.score()` |
 
 Each contract is a frozen dataclass. The important fields:
 
