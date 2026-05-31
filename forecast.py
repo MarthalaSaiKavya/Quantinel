@@ -1,5 +1,5 @@
 """
-LAYER 2 · FORECAST   (owner: ____)
+LAYER 2 · FORECAST   (owner: GT (10780))
 
 BASELINE (no ML, no quantum): MomentumForecaster.
 QUANTUM SWAP: QuantumForecaster — submits Python to the xpyq compute API.
