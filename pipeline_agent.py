@@ -7,6 +7,7 @@ a forward-looking ForwardDecision: what to do on the NEXT real rebalance.
 
 This is the only place where LLM reasoning touches the pipeline.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,12 +22,12 @@ _MODEL = "anthropic/claude-haiku-4-5"
 
 @dataclass
 class ForwardDecision:
-    recommended_forecaster: str          # "quantum" | "momentum"
-    recommended_risk_aversion: float     # for next run
-    recommended_gross_exposure: float    # for next run
-    next_position: dict[str, str]        # ticker -> "LONG" | "SHORT" | "FLAT"
-    confidence: str                      # "HIGH" | "MEDIUM" | "LOW"
-    reasoning: str                       # full LLM rationale
+    recommended_forecaster: str  # "quantum" | "momentum"
+    recommended_risk_aversion: float  # for next run
+    recommended_gross_exposure: float  # for next run
+    next_position: dict[str, str]  # ticker -> "LONG" | "SHORT" | "FLAT"
+    confidence: str  # "HIGH" | "MEDIUM" | "LOW"
+    reasoning: str  # full LLM rationale
 
 
 class PipelineAgent:
@@ -38,18 +39,28 @@ class PipelineAgent:
     def __init__(self, openrouter_key: str):
         self.openrouter_key = openrouter_key
 
-    def decide(self, records, scorecard, risk_report, intelligence, forecaster_label: str) -> ForwardDecision:
-        context = self._build_context(records, scorecard, risk_report, intelligence, forecaster_label)
+    def decide(
+        self, records, scorecard, risk_report, intelligence, forecaster_label: str
+    ) -> ForwardDecision:
+        context = self._build_context(
+            records, scorecard, risk_report, intelligence, forecaster_label
+        )
         raw = self._call_llm(context)
         return self._parse(raw)
 
     # ------------------------------------------------------------------
 
-    def _build_context(self, records, scorecard, risk_report, intelligence, forecaster_label) -> str:
+    def _build_context(
+        self, records, scorecard, risk_report, intelligence, forecaster_label
+    ) -> str:
         # Equity curve trend — last 20 rebalances vs first 20
         equity = scorecard.equity_curve
         early = float(equity.iloc[:20].mean()) if len(equity) >= 20 else 1.0
-        late  = float(equity.iloc[-20:].mean()) if len(equity) >= 20 else float(equity.mean())
+        late = (
+            float(equity.iloc[-20:].mean())
+            if len(equity) >= 20
+            else float(equity.mean())
+        )
         trend = "improving" if late > early else "deteriorating"
 
         # Recent IC trend (last 20 records)
@@ -58,11 +69,15 @@ class PipelineAgent:
         for r in recent:
             if r.forecast:
                 for t in r.forward_returns:
-                    ic_vals.append((r.forecast.expected_returns.get(t, 0), r.forward_returns[t]))
+                    ic_vals.append(
+                        (r.forecast.expected_returns.get(t, 0), r.forward_returns[t])
+                    )
         recent_ic = 0.0
         if len(ic_vals) > 1:
             pred, real = zip(*ic_vals)
-            recent_ic = float(np.corrcoef(pred, real)[0, 1]) if np.std(pred) > 0 else 0.0
+            recent_ic = (
+                float(np.corrcoef(pred, real)[0, 1]) if np.std(pred) > 0 else 0.0
+            )
 
         # Last position
         last = records[-1]
@@ -102,10 +117,10 @@ Risk model:
 Last realized position: {last_weights}
 
 LIVE MARKET INTELLIGENCE (from Exa)
-Sentiment: {', '.join(f'{t}: {v:+.2f}' for t, v in sent.items())}
-Key themes: {', '.join(intelligence.key_themes)}
+Sentiment: {", ".join(f"{t}: {v:+.2f}" for t, v in sent.items())}
+Key themes: {", ".join(intelligence.key_themes)}
 Headlines:
-{chr(10).join(f'  {t}: {h[:80]}' for t, hs in heads.items() for h in hs)}
+{chr(10).join(f"  {t}: {h[:80]}" for t, hs in heads.items() for h in hs)}
 
 DECISION REQUIRED
 Based on the above, decide for the NEXT real rebalance:
@@ -132,7 +147,10 @@ Respond ONLY with valid JSON, no other text:
 }}"""
 
     def _call_llm(self, prompt: str) -> str:
+        if not self.openrouter_key:
+            return ""
         import requests
+
         try:
             resp = requests.post(
                 _OPENROUTER_URL,
@@ -152,21 +170,28 @@ Respond ONLY with valid JSON, no other text:
             return resp.json()["choices"][0]["message"]["content"].strip()
         except Exception as e:
             import sys
-            print(f"[pipeline_agent] LLM call failed: {type(e).__name__}: {e}", file=sys.stderr)
-            return ""
 
+            print(
+                f"[pipeline_agent] LLM call failed: {type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
+            return ""
 
     def _parse(self, raw: str) -> ForwardDecision:
         try:
             # extract the first {...} block regardless of markdown fencing
             start = raw.index("{")
-            end   = raw.rindex("}") + 1
-            text  = raw[start:end]
+            end = raw.rindex("}") + 1
+            text = raw[start:end]
             d = json.loads(text)
             return ForwardDecision(
                 recommended_forecaster=str(d.get("recommended_forecaster", "momentum")),
-                recommended_risk_aversion=float(np.clip(d.get("recommended_risk_aversion", 8.0), 2.0, 20.0)),
-                recommended_gross_exposure=float(np.clip(d.get("recommended_gross_exposure", 1.0), 0.3, 1.5)),
+                recommended_risk_aversion=float(
+                    np.clip(d.get("recommended_risk_aversion", 8.0), 2.0, 20.0)
+                ),
+                recommended_gross_exposure=float(
+                    np.clip(d.get("recommended_gross_exposure", 1.0), 0.3, 1.5)
+                ),
                 next_position=dict(d.get("next_position", {})),
                 confidence=str(d.get("confidence", "MEDIUM")),
                 reasoning=str(d.get("reasoning", "")),

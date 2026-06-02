@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantinel PM Terminal</title>
+    <!-- GridStack CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack.min.css" rel="stylesheet"/>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="topbar-brand">
+        <h1>QUANTINEL //</h1>
+        <span class="subtitle">Agentic Quantum Risk Decisions</span>
+    </div>
+    <div class="topbar-status">
+        <span class="status-item"><span class="status-dot" id="status-api"></span> API</span>
+        <button class="btn btn-primary" id="btn-run-pipeline">EXECUTE RUN</button>
+        <span class="mono dim" id="topbar-time">--:--:--</span>
+    </div>
+</header>
+
+<main class="dashboard-wrapper">
+    <div class="grid-stack">
+        <!-- 1. Agent Decision Center -->
+        <div class="grid-stack-item" gs-w="6" gs-h="4" gs-x="0" gs-y="0">
+            <div class="grid-stack-item-content panel panel-decision">
+                <div class="panel-header">
+                    <h2>AGENT DECISION CENTER</h2>
+                    <span class="layer-badge layer-agent">FORWARD SIGNAL</span>
+                </div>
+                <div class="panel-body" id="decision-content">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Intelligence Feed (Top Right) -->
+        <div class="grid-stack-item" gs-w="6" gs-h="4" gs-x="6" gs-y="0">
+            <div class="grid-stack-item-content panel">
+                <div class="panel-header">
+                    <h2>INTELLIGENCE FEED</h2>
+                    <span class="layer-badge layer-data">EXA LIVE</span>
+                </div>
+                <div class="panel-body" id="news-content">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Risk Transparency Board -->
+        <div class="grid-stack-item" gs-w="12" gs-h="4" gs-x="0" gs-y="4">
+            <div class="grid-stack-item-content panel">
+                <div class="panel-header">
+                    <h2>RISK TRANSPARENCY BOARD</h2>
+                    <span class="layer-badge layer-risk">VAR ENSEMBLE</span>
+                </div>
+                <div class="panel-body" id="risk-content">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Position Sizing -->
+        <div class="grid-stack-item" gs-w="6" gs-h="4" gs-x="0" gs-y="8">
+            <div class="grid-stack-item-content panel">
+                <div class="panel-header">
+                    <h2>POSITION SIZING</h2>
+                    <span class="layer-badge layer-optimize">ALLOCATION</span>
+                </div>
+                <div class="panel-body" id="sizing-content">
+                    <div class="loading">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. Traditional PM View (Backtest) -->
+        <div class="grid-stack-item" gs-w="6" gs-h="4" gs-x="6" gs-y="8">
+            <div class="grid-stack-item-content panel">
+                <div class="panel-header">
+                    <h2>TRADITIONAL PM VIEW</h2>
+                    <span class="layer-badge layer-score">SCORECARD</span>
+                </div>
+                <div class="tab-bar">
+                    <button class="tab-btn active" data-tab="tab-equity">EQUITY CURVE</button>
+                    <button class="tab-btn" data-tab="tab-comparison">N VS Q COMPARISON</button>
+                </div>
+                <div class="tab-content active" id="tab-equity">
+                    <div class="panel-body" id="equity-content"><div class="loading">Loading...</div></div>
+                </div>
+                <div class="tab-content" id="tab-comparison">
+                    <div class="panel-body" id="comparison-content"><div class="loading">Loading...</div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 6. Quantum Diagnostics & Agent Trace -->
+        <div class="grid-stack-item" gs-w="12" gs-h="3" gs-x="0" gs-y="12">
+            <div class="grid-stack-item-content panel">
+                <div class="panel-header">
+                    <h2>AGENTIC DECISION TRACE & QUANTUM DIAGNOSTICS</h2>
+                    <span class="layer-badge layer-agent">TRACE LOG</span>
+                </div>
+                <div class="tab-bar">
+                    <button class="tab-btn active" data-tab="tab-trace">DECISION TRACE</button>
+                    <button class="tab-btn" data-tab="tab-logs">EXECUTION LOGS</button>
+                </div>
+                <div class="tab-content active" id="tab-trace">
+                    <div class="panel-body" id="trace-content">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+                <div class="tab-content" id="tab-logs">
+                    <div class="panel-body" id="logs-content" style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim); white-space: pre-wrap; overflow-y: auto; max-height: 100%;">
+                        <div class="loading">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</main>
+
+<!-- GridStack JS -->
+<script src="https://cdn.jsdelivr.net/npm/gridstack@10.3.1/dist/gridstack-all.js"></script>
+<script src="dashboard.js"></script>
+</body>
+</html>

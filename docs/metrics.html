@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quantinel — Metric Design</title>
+  <style>
+    :root {
+      --bg:       #0d0f14;
+      --surface:  #13161e;
+      --card:     #1a1e2b;
+      --border:   #252a3a;
+      --accent:   #4f8ef7;
+      --accent2:  #a78bfa;
+      --green:    #34d399;
+      --yellow:   #fbbf24;
+      --red:      #f87171;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --code-bg:  #0f1117;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #0f1520 0%, #1a1e2b 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 48px 64px 40px;
+    }
+    header .eyebrow {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+    header h1 {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+    }
+    header p {
+      color: var(--muted);
+      max-width: 620px;
+      font-size: 15px;
+    }
+
+    /* ── Layout ──────────────────────────────────────────────────────── */
+    main {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 48px 40px 80px;
+    }
+
+    /* ── Flow diagram ─────────────────────────────────────────────────── */
+    .flow {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      flex-wrap: wrap;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 28px;
+      margin-bottom: 52px;
+      overflow-x: auto;
+    }
+    .flow-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 90px;
+    }
+    .flow-node .badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .flow-node .box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .flow-node .box.active { border-color: var(--accent); color: var(--accent); }
+    .flow-arrow {
+      font-size: 18px;
+      color: var(--muted);
+      padding: 0 6px;
+      padding-top: 16px;
+    }
+
+    /* ── Section headers ──────────────────────────────────────────────── */
+    .section-label {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      margin-top: 48px;
+    }
+    .section-label .layer-pill {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: 99px;
+      background: var(--accent);
+      color: #fff;
+    }
+    .section-label .layer-pill.l2 { background: var(--accent2); }
+    .section-label .layer-pill.l3 { background: #0ea5e9; }
+    .section-label .layer-pill.l4 { background: #f97316; }
+    .section-label .layer-pill.l5 { background: var(--green); color: #0d0f14; }
+    .section-label .layer-pill.l6 { background: var(--yellow); color: #0d0f14; }
+    .section-label h2 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    /* ── Cards ───────────────────────────────────────────────────────── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 8px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 22px;
+    }
+    .card .metric-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card .metric-name.purple { color: var(--accent2); }
+    .card .metric-name.cyan   { color: #38bdf8; }
+    .card .metric-name.orange { color: #fb923c; }
+    .card .metric-name.green  { color: var(--green); }
+    .card .metric-name.yellow { color: var(--yellow); }
+    .card .metric-name .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+    .card .formula {
+      font-family: "SFMono-Regular", "Consolas", monospace;
+      font-size: 12px;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      color: #93c5fd;
+      margin: 10px 0;
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+    .card p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+    .card p strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* ── Sub-agent trio ───────────────────────────────────────────────── */
+    .trio {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 720px) { .trio { grid-template-columns: 1fr; } }
+
+    .trio .card .tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .tag-gbm       { background: rgba(79,142,247,0.15); color: #4f8ef7; }
+    .tag-markov    { background: rgba(167,139,250,0.15); color: #a78bfa; }
+    .tag-bootstrap { background: rgba(52,211,153,0.15); color: #34d399; }
+
+    /* ── Connection callout ───────────────────────────────────────────── */
+    .callout {
+      background: var(--surface);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      padding: 14px 18px;
+      margin: 20px 0 8px;
+      font-size: 13.5px;
+      color: var(--muted);
+    }
+    .callout strong { color: var(--text); }
+    .callout.green  { border-color: var(--green); }
+    .callout.yellow { border-color: var(--yellow); }
+    .callout.purple { border-color: var(--accent2); }
+    .callout.orange { border-color: #fb923c; }
+
+    /* ── Scorecard table ──────────────────────────────────────────────── */
+    .score-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 13.5px;
+    }
+    .score-table th {
+      text-align: left;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .score-table td {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .score-table tr:last-child td { border-bottom: none; }
+    .score-table td:first-child { font-weight: 600; color: var(--yellow); white-space: nowrap; }
+    .score-table td:nth-child(2) {
+      font-family: "SFMono-Regular", "Consolas", monospace;
+      font-size: 12px;
+      color: #93c5fd;
+    }
+    .score-table td:nth-child(3) { color: var(--muted); }
+
+    /* ── Chain diagram ────────────────────────────────────────────────── */
+    .chain {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 28px 32px;
+      margin-top: 52px;
+    }
+    .chain h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 22px;
+    }
+    .chain-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .chain-row:last-child { border-bottom: none; }
+    .chain-row .step {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .chain-row .produces {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+    .chain-row .consumed {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .chain-row .consumed span {
+      display: inline-block;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 7px;
+      margin: 2px 3px 2px 0;
+      font-family: monospace;
+      font-size: 11px;
+      color: #93c5fd;
+    }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      padding: 32px;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Quantinel · Internal Docs</div>
+  <h1>Metric Design Reference</h1>
+  <p>Why each metric exists, how it is computed, and how it connects to the next layer in the pipeline.</p>
+</header>
+
+<main>
+
+  <!-- Flow diagram -->
+  <div class="flow">
+    <div class="flow-node">
+      <span class="badge">L1</span>
+      <span class="box active">Data + News</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <span class="badge">L2</span>
+      <span class="box">Forecast</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <span class="badge">L3</span>
+      <span class="box">Risk</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <span class="badge">L4</span>
+      <span class="box">Optimize</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <span class="badge">L5</span>
+      <span class="box">Execute</span>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node">
+      <span class="badge">L6</span>
+      <span class="box">Score</span>
+    </div>
+  </div>
+
+
+  <!-- ─── Layer 1 ──────────────────────────────────────────────────── -->
+  <div class="section-label">
+    <span class="layer-pill l1">Layer 1</span>
+    <h2>Data &amp; News</h2>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="metric-name"><span class="dot"></span> Daily Returns</div>
+      <div class="formula">ret[t] = (close[t] / close[t-1]) - 1</div>
+      <p>
+        <strong>Why:</strong> Every downstream metric derives from this. Percentage change keeps all stocks comparable regardless of price level — a $10 move in a $500 stock is very different from a $10 move in a $15 stock.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name"><span class="dot"></span> Sentiment Score</div>
+      <div class="formula">score = (pos_words - neg_words)
+       / (n_articles × 2)
+clamped to [-1.0, +1.0]</div>
+      <p>
+        <strong>Why:</strong> Markets react to narrative, not just price. A simple keyword bag (beat/surge/miss/warn…) gives a fast, auditable signal without a heavy NLP model. Dividing by <em>2 × article count</em> prevents a single hyper-bullish headline from dominating.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name"><span class="dot"></span> Sentiment Aggregation</div>
+      <div class="formula">avg_sentiment[ticker] =
+  mean(scores in last 5 days)</div>
+      <p>
+        <strong>Why:</strong> A rolling 5-day window aligns with the 5-day rebalance and forecast horizon. Older news has already been priced in; very recent articles carry more weight by being in a smaller pool.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Feeds into →</strong> Layer 3 (Markov sub-agent uses per-ticker sentiment to shift the bull/bear transition matrix) and Layer 6 (raw headlines surfaced in the dashboard).
+  </div>
+
+
+  <!-- ─── Layer 2 ──────────────────────────────────────────────────── -->
+  <div class="section-label">
+    <span class="layer-pill l2">Layer 2</span>
+    <h2>Forecast</h2>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="metric-name purple"><span class="dot"></span> Expected Return</div>
+      <div class="formula"><!-- Momentum -->
+exp_ret = mean(last 20 daily rets)
+        × horizon_days
+
+<!-- Quantum (SVD path) -->
+factor_scores = U × S
+momentum = F[-1,0] - F[-H,0]
+signal = momentum × Vt[0, ticker_i]
+exp_ret = signal × vol × √H</div>
+      <p>
+        <strong>Why two methods:</strong> Momentum is the dumb baseline — hard to beat over short windows. The quantum path decomposes the return matrix into market factors via SVD, reads the dominant factor's recent trend, and projects each ticker's exposure to that trend forward. A ticker that loads heavily on a rising factor should move more.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name purple"><span class="dot"></span> Direction (+1 / −1)</div>
+      <div class="formula">direction[t] = sign(expected_return[t])</div>
+      <p>
+        <strong>Why:</strong> The optimizer needs to know long vs short, not just magnitude. Isolating direction makes it possible to evaluate directional accuracy independently in Layer 6 — a useful diagnostic when the magnitude estimate is noisy but the sign is right.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name purple"><span class="dot"></span> Confidence (0–1)</div>
+      <div class="formula"><!-- Momentum path -->
+conf = min(1, |mean_ret| / std_ret)
+
+<!-- Quantum path -->
+conf = min(1, |factor_momentum|
+              / factor_vol)</div>
+      <p>
+        <strong>Why:</strong> A Sharpe-like signal-to-noise ratio on the forecast itself. A large expected return in a high-volatility regime is less trustworthy than the same return in a calm one. Confidence is not yet used by the optimizer but is available for future weighting.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout purple">
+    <strong>Feeds into →</strong> Layer 3 GBM (uses <code>expected_returns</code> as the drift in path simulation) and Layer 4 (all optimizers take <code>expected_returns</code> as the mu vector). Layer 6 checks <code>direction</code> against actual returns for Directional Accuracy.
+  </div>
+
+
+  <!-- ─── Layer 3 ──────────────────────────────────────────────────── -->
+  <div class="section-label">
+    <span class="layer-pill l3">Layer 3</span>
+    <h2>Risk</h2>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="metric-name cyan"><span class="dot"></span> Annualised Covariance</div>
+      <div class="formula">Σ = rets.cov() × 252
+vol[t] = √Σ[t,t]</div>
+      <p>
+        <strong>Why ×252:</strong> Annualising puts the covariance on the same scale as annualised expected returns, so the Markowitz objective <em>μ·w − λw'Σw</em> in Layer 4 balances the two terms correctly.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name cyan"><span class="dot"></span> VaR 95%</div>
+      <div class="formula">VaR = percentile(simulated_returns, 5)</div>
+      <p>
+        <strong>Why 5th percentile:</strong> The 95% one-tailed VaR asks "what is the worst outcome we'd expect to see at most 5% of the time?" It is the standard risk-desk threshold — auditors and quant judges recognise it immediately. Expressed as a negative return (e.g. −0.07 = could lose 7%).
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name cyan"><span class="dot"></span> CVaR 95%</div>
+      <div class="formula">CVaR = mean(returns ≤ VaR)</div>
+      <p>
+        <strong>Why CVaR over VaR alone:</strong> VaR says "loss won't exceed X 95% of the time" but says nothing about <em>how bad</em> the other 5% is. CVaR (Expected Shortfall) averages the tail — it penalises fat tails and is the metric Basel III uses for bank capital.
+      </p>
+    </div>
+  </div>
+
+  <p style="color:var(--muted); font-size:13px; margin: 16px 0 12px;">Three sub-agents each produce independent VaR and CVaR estimates, then the ensemble aggregates them.</p>
+
+  <div class="trio">
+    <div class="card">
+      <span class="tag tag-gbm">GBM</span>
+      <div class="metric-name cyan" style="font-size:12px;"><span class="dot"></span> Parametric simulation</div>
+      <div class="formula">mu_d = exp_ret / H
+sig_d = annual_vol / √252
+ret = mu_d + sig_d × Z
+VaR = pct(cumprod_ret, 5)</div>
+      <p style="font-size:12px;"><strong>Why:</strong> Uses forecast drift — the only sub-agent that ties the risk estimate to the forward view. Clean, fast, Gaussian. Its weakness is fat-tail blindness.</p>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-markov">Markov</span>
+      <div class="metric-name cyan" style="font-size:12px;"><span class="dot"></span> Regime-switching</div>
+      <div class="formula">regime = (ret ≥ median) → bull/bear
+P adjusted by news sentiment
+simulate path via regime transitions
+VaR = pct(path_returns, 5)</div>
+      <p style="font-size:12px;"><strong>Why:</strong> Markets have two moods. When sentiment is negative, we nudge the bear regime stickier — the only place where news directly changes a risk number.</p>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-bootstrap">Bootstrap</span>
+      <div class="metric-name cyan" style="font-size:12px;"><span class="dot"></span> Non-parametric</div>
+      <div class="formula">blocks = chunks of history, len≈H/2
+resample blocks → horizon path
+VaR = pct(path_returns, 5)</div>
+      <p style="font-size:12px;"><strong>Why:</strong> No distribution assumption. Block-resampling preserves autocorrelation and naturally captures crash-like fat tails that GBM misses.</p>
+    </div>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="metric-name cyan"><span class="dot"></span> Aggregated VaR &amp; CVaR</div>
+      <div class="formula">var_95 = median(gbm, markov, bootstrap)
+cvar_95 = min(gbm, markov, bootstrap)</div>
+      <p>
+        <strong>Why median for VaR:</strong> Avoids any single model dominating — the middle-of-the-road estimate. <strong>Why min (worst) for CVaR:</strong> When the tail is bad, we take the most conservative view. CVaR is our downside protection number.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name cyan"><span class="dot"></span> Disagreement [0, ∞)</div>
+      <div class="formula">for each ticker:
+  dev = |var_agent - median_var|
+         / |median_var|
+disagreement = mean(all devs)</div>
+      <p>
+        <strong>Why:</strong> When GBM, Markov, and Bootstrap give very different VaR numbers, no single model should be trusted. Disagreement quantifies this uncertainty. It is passed directly to the optimizer as a position-size shrinkage factor.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Feeds into →</strong> Layer 4 optimizer receives <code>cov</code>, <code>var_95</code>, <code>cvar_95</code>, and <code>disagreement</code>. The disagreement scalar <em>directly shrinks weights</em> — it is the primary cross-layer uncertainty signal.
+  </div>
+
+
+  <!-- ─── Layer 4 ──────────────────────────────────────────────────── -->
+  <div class="section-label">
+    <span class="layer-pill l4">Layer 4</span>
+    <h2>Optimize</h2>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="metric-name orange"><span class="dot"></span> Markowitz Objective</div>
+      <div class="formula">maximise  μ·w − λ·w'Σw
+solution: w ∝ Σ⁻¹·μ</div>
+      <p>
+        <strong>Why this form:</strong> The first term rewards expected return; the second term penalises variance. λ (risk aversion = 8) balances them. The closed-form inverse means no iterative solver needed — fast and deterministic.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name orange"><span class="dot"></span> Dollar Neutral &amp; Gross Scale</div>
+      <div class="formula">w = w − mean(w)   → sum(w) ≈ 0
+w = w / sum(|w|)  → gross = 1</div>
+      <p>
+        <strong>Why dollar neutral:</strong> Removes market beta — we're trying to profit from <em>relative</em> NVDA vs GOOG calls, not a bet that the market goes up. Gross = 1 means 50 cents long, 50 cents short per dollar of capital.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name orange"><span class="dot"></span> Disagreement Shrinkage</div>
+      <div class="formula">shrink = 1 / (1 + disagreement)
+weights = weights × shrink</div>
+      <p>
+        <strong>Why:</strong> This is the feedback loop from Layer 3 into Layer 4. High model disagreement → shrink factor closer to 0 → smaller bets. It is a principled way to translate epistemic uncertainty into caution without changing the optimizer's logic.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name orange"><span class="dot"></span> QUBO Objective (Quantum)</div>
+      <div class="formula">Q = λΣ − diag(μ)
+minimise w'Qw
+ground state = eigvec(Q, min eigval)
+w = sign(ground_state)</div>
+      <p>
+        <strong>Why QUBO:</strong> Discrete long/short picks are a combinatorial problem — the same structure QAOA/VQE solve on a real QPU. By casting Markowitz as minimising <em>w'Qw</em> we get a problem the quantum hardware is designed for.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout orange">
+    <strong>Feeds into →</strong> Layer 5 receives <code>TargetPortfolio.weights</code>. Layer 6 computes PnL as <em>Σ(weight × forward_return)</em> and charges turnover costs when weights change.
+  </div>
+
+
+  <!-- ─── Layer 5 ──────────────────────────────────────────────────── -->
+  <div class="section-label">
+    <span class="layer-pill l5">Layer 5</span>
+    <h2>Execute</h2>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="metric-name green"><span class="dot"></span> Realized Weights</div>
+      <div class="formula">shares = int((w × capital) / price)
+realized_w = (shares × price) / capital</div>
+      <p>
+        <strong>Why whole-share rounding:</strong> Real brokers execute in whole shares. The gap between <em>target</em> and <em>realized</em> weights is the first taste of execution friction — it shows up as tracking error in Layer 6's PnL calculation.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name green"><span class="dot"></span> Fill Records</div>
+      <div class="formula">Fill(ticker, side, qty, price)
+side = "buy" if shares > 0</div>
+      <p>
+        <strong>Why track fills:</strong> Provides an audit trail for every position change. When we switch to live execution (AlpacaExecutor), the Fill objects become real order receipts — same structure, no downstream changes needed.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout green">
+    <strong>Feeds into →</strong> Layer 6 uses <code>realized_weights</code> (not target weights) to compute PnL, so the score reflects actual execution, not ideal weights.
+  </div>
+
+
+  <!-- ─── Layer 6 ──────────────────────────────────────────────────── -->
+  <div class="section-label">
+    <span class="layer-pill l6">Layer 6</span>
+    <h2>Score</h2>
+  </div>
+
+  <table class="score-table">
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Formula</th>
+        <th>Why it matters</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Sharpe Ratio</td>
+        <td>mean(rets) / std(rets) × √52</td>
+        <td>Risk-adjusted return, annualised. The single most universal quant benchmark. √52 annualises weekly rebalances. Sharpe &gt; 1 is good; &gt; 2 is excellent.</td>
+      </tr>
+      <tr>
+        <td>Total Return</td>
+        <td>cumprod(1 + rets) − 1</td>
+        <td>Raw compounded P&amp;L over the backtest window. Judges and investors understand it immediately even without quant background.</td>
+      </tr>
+      <tr>
+        <td>Directional Accuracy</td>
+        <td>count(sign(direction) == sign(actual)) / total</td>
+        <td>Did the forecast call up/down correctly? 50% = coin flip. Directly grades the Layer 2 direction signal in isolation from magnitude noise.</td>
+      </tr>
+      <tr>
+        <td>Information Coefficient</td>
+        <td>pearson_r(predicted_returns, actual_returns)</td>
+        <td>Gold standard for alpha research. IC = 0 means the forecast is useless; IC = 0.05–0.10 is considered good in practice. Unlike DA, it penalises wrong magnitudes too.</td>
+      </tr>
+      <tr>
+        <td>vs. Baseline Sharpe</td>
+        <td>strategy_sharpe − baseline_sharpe</td>
+        <td>Baseline is 50/50 equal-weight buy-and-hold. Positive = the selected pipeline earns its complexity. This is the model-arena benchmark for baseline vs challenger.</td>
+      </tr>
+      <tr>
+        <td>Period PnL</td>
+        <td>Σ(w × fwd_ret) − turnover × 0.0002</td>
+        <td>2 bps transaction cost is charged on every unit of weight change (turnover). Without this, a hyperactive optimizer looks great on paper but loses to fees in reality.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="card-grid" style="margin-top:16px;">
+    <div class="card">
+      <div class="metric-name yellow"><span class="dot"></span> VaR Breach Rate</div>
+      <div class="formula">breach = (actual_ret < −VaR)
+breach_rate = breaches / total_checks
+expected = 0.05 (for 95% VaR)</div>
+      <p>
+        <strong>Why:</strong> A perfectly calibrated VaR should be violated exactly 5% of the time. If the breach rate is much higher, the risk model is too optimistic. Much lower means it is over-conservative and the optimizer is holding back too much. Checked per sub-agent to identify which model is best calibrated.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="metric-name yellow"><span class="dot"></span> Avg / Max Disagreement</div>
+      <div class="formula">avg_dis = mean(disagreement over rebalances)
+max_dis = peak(disagreement)</div>
+      <p>
+        <strong>Why:</strong> Tracks how often the three risk models diverged over the whole backtest. High avg disagreement means the risk model was consistently uncertain — and weights were consistently shrunk. It explains low gross exposure in stressed periods.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout yellow">
+    <strong>This is the deliverable.</strong> Scorecard + RiskReport together answer: did the pipeline make money (<em>Sharpe, total return</em>), did it make smarter bets than random (<em>IC, DA</em>), did it beat doing nothing (<em>vs. baseline</em>), and did the risk model know what it was doing (<em>VaR breach rate</em>)?
+  </div>
+
+
+  <!-- ─── How it all connects ───────────────────────────────────────── -->
+  <div class="chain">
+    <h3>How every metric connects end-to-end</h3>
+
+    <div class="chain-row">
+      <div class="step">1</div>
+      <div>
+        <div class="produces">Layer 1 produces daily returns + per-ticker sentiment</div>
+        <div class="consumed">Used by: <span>L2 momentum</span><span>L3 covariance</span><span>L3 GBM vol</span><span>L3 Markov regimes</span><span>L3 Bootstrap paths</span></div>
+      </div>
+    </div>
+
+    <div class="chain-row">
+      <div class="step">2</div>
+      <div>
+        <div class="produces">Layer 2 produces expected_returns, direction, confidence</div>
+        <div class="consumed">Used by: <span>L3 GBM drift</span><span>L4 optimizer mu vector</span><span>L6 IC calculation</span><span>L6 directional accuracy</span></div>
+      </div>
+    </div>
+
+    <div class="chain-row">
+      <div class="step">3</div>
+      <div>
+        <div class="produces">Layer 3 produces Σ (covariance), VaR, CVaR, disagreement</div>
+        <div class="consumed">Used by: <span>L4 Σ in objective</span><span>L4 disagreement shrinkage</span><span>L6 VaR breach rate</span><span>L6 RiskReport</span></div>
+      </div>
+    </div>
+
+    <div class="chain-row">
+      <div class="step">4</div>
+      <div>
+        <div class="produces">Layer 4 produces target weights (shrunk by disagreement)</div>
+        <div class="consumed">Used by: <span>L5 share rounding</span><span>L6 turnover cost</span><span>L6 PnL = w × forward_return</span></div>
+      </div>
+    </div>
+
+    <div class="chain-row">
+      <div class="step">5</div>
+      <div>
+        <div class="produces">Layer 5 produces realized weights (post-rounding)</div>
+        <div class="consumed">Used by: <span>L6 actual PnL series</span><span>L6 equity curve</span></div>
+      </div>
+    </div>
+
+    <div class="chain-row">
+      <div class="step">6</div>
+      <div>
+        <div class="produces">Layer 6 produces Scorecard + RiskReport</div>
+        <div class="consumed">Deliverable: <span>Sharpe</span><span>Total Return</span><span>IC</span><span>Directional Accuracy</span><span>vs. Baseline</span><span>VaR Breach Rate</span></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<footer>Quantinel · Metric Design Reference · Generated 2026-05-31</footer>
+
+</body>
+</html>

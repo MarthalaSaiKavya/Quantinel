@@ -10,23 +10,25 @@ Nothing else moves.
 Run:  python run_baseline.py
 """
 
+import os
+
 from backtest import Backtest
-from data import MockDataSource
+from data import YFinanceDataSource
 from execute import PaperExecutor
 from forecast import MomentumForecaster
-from news import MockNewsSource
+from news import make_news_source
 from optimize import MeanVarianceOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
 
+START = os.environ.get("QUANTINEL_START", "2023-01-01")
+EXA_KEY = os.environ.get("EXA_KEY", "")
+
 
 def main():
     bt = Backtest(
-        # TODO: switch to YFinanceDataSource for real NVDA/GOOG data
-        # from data import YFinanceDataSource
-        # source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start="2023-01-01"),
-        source=MockDataSource(),  # Layer 1 · Data
-        news_source=MockNewsSource(),  # Layer 1 · News
+        source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start=START),
+        news_source=make_news_source(EXA_KEY),
         forecaster=MomentumForecaster(),  # Layer 2 · Forecast
         risk=SampleCovRisk(),  # Layer 3 · Risk
         optimizer=MeanVarianceOptimizer(),  # Layer 4 · Pick & size

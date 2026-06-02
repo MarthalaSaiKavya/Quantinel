@@ -10,25 +10,26 @@ Run:  python run_quantum.py
 import os
 
 from backtest import Backtest
-from data import MockDataSource
+from data import YFinanceDataSource
 from execute import PaperExecutor
 from forecast import MomentumForecaster, QuantumForecaster
-from news import MockNewsSource
+from news import make_news_source
 from optimize import MeanVarianceOptimizer, QaoaOptimizer
 from risk import SampleCovRisk
 from score import BacktestScorer, RiskScorer
 
 API_KEY = os.environ.get("XPYQ_KEY", "")
+EXA_KEY = os.environ.get("EXA_KEY", "")
 XPYQ_TIMEOUT = float(os.environ.get("XPYQ_TIMEOUT", "20"))
 RISK_N_PATHS = int(os.environ.get("QUANTINEL_N_PATHS", "10000"))
-N_DAYS = int(os.environ.get("QUANTINEL_N_DAYS", "504"))
+START = os.environ.get("QUANTINEL_START", "2023-01-01")
 REBALANCE_EVERY = int(os.environ.get("QUANTINEL_REBALANCE_EVERY", "5"))
 
 
 def run(forecaster, optimizer, label):
     bt = Backtest(
-        source=MockDataSource(n_days=N_DAYS),
-        news_source=MockNewsSource(),
+        source=YFinanceDataSource(tickers=["NVDA", "GOOG"], start=START),
+        news_source=make_news_source(EXA_KEY),
         forecaster=forecaster,
         risk=SampleCovRisk(n_paths=RISK_N_PATHS),
         optimizer=optimizer,
